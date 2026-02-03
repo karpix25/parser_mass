@@ -2,6 +2,7 @@ import asyncio
 import logging
 import os
 import json
+import base64
 import gspread
 import aiohttp
 from datetime import datetime
@@ -28,12 +29,18 @@ def _get_gclient():
         # 1. Try ENV variable
         json_creds = os.getenv("GOOGLE_SERVICE_ACCOUNT_JSON")
         if json_creds:
-            if not json_creds.strip().startswith("{"):
-                 # Maybe it's a path if user put path in env?
-                 # But usually it is content. Let's assume content if starts with {
-                 # If it doesn't start with {, maybe it is a path or invalid.
-                 pass
-            else:
+            json_creds = json_creds.strip()
+            # If it doesn't look like JSON (no curly braces), try Base64 decoding
+            if not json_creds.startswith("{"):
+                 try:
+                     decoded_bytes = base64.b64decode(json_creds)
+                     json_creds = decoded_bytes.decode("utf-8")
+                     logger.info("🔓 Decoded Base64 credentials from ENV")
+                 except Exception:
+                     # e.g. padding error, not base64 -> ignore or let json.loads fail
+                     pass
+            
+            if json_creds.startswith("{"):
                  # Load from dict
                  creds_dict = json.loads(json_creds)
                  
