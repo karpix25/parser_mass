@@ -43,6 +43,11 @@ def _get_gclient():
                      # If key has literal \n characters but not actual newlines, fix it
                      if "\\n" in pk:
                          creds_dict["private_key"] = pk.replace("\\n", "\n")
+                         logger.info("🔧 Fixed escaped newlines in ENV private_key")
+                     
+                     # Debug print to see what we actually have (safe snippet)
+                     debug_key = creds_dict["private_key"]
+                     logger.info(f"🔑 Key snippet: {debug_key[:40].replace(chr(10), '[NL]')}")
                  
                  gc = gspread.service_account_from_dict(creds_dict)
                  logger.info("✅ Authenticated with Google Sheets via ENV variable")
