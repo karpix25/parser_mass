@@ -36,6 +36,14 @@ def _get_gclient():
             else:
                  # Load from dict
                  creds_dict = json.loads(json_creds)
+                 
+                 # [FIX] Handle escaped newlines in private_key if coming from ENV
+                 if "private_key" in creds_dict:
+                     pk = creds_dict["private_key"]
+                     # If key has literal \n characters but not actual newlines, fix it
+                     if "\\n" in pk:
+                         creds_dict["private_key"] = pk.replace("\\n", "\n")
+                 
                  gc = gspread.service_account_from_dict(creds_dict)
                  logger.info("✅ Authenticated with Google Sheets via ENV variable")
                  return gc
