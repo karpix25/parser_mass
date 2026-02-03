@@ -50,16 +50,32 @@ def _get_gclient():
                      logger.info(f"🔑 Key snippet: {debug_key[:40].replace(chr(10), '[NL]')}")
                  
                  gc = gspread.service_account_from_dict(creds_dict)
-                 logger.info("✅ Authenticated with Google Sheets via ENV variable")
-                 return gc
+                 
+                 # [NEW] Verify credentials immediately
+                 try:
+                     # Attempt a lightweight call to check signature
+                     # list_spreadsheet_files raises APIError if auth fails
+                     gc.list_spreadsheet_files()
+                     logger.info("✅ Authenticated with Google Sheets via ENV variable (Verified)")
+                     return gc
+                 except Exception as exc:
+                     logger.warning(f"⚠️ ENV credentials invalid (Signature check failed): {exc}. Falling back to file...")
+            
+            # If we fall through here, ENV failed or didn't exist
 
         # 2. Try file
         if os.path.exists("service_account.json"):
-            gc = gspread.service_account(filename="service_account.json")
-            logger.info("✅ Authenticated with Google Sheets via local file")
-            return gc
+            try:
+                gc = gspread.service_account(filename="service_account.json")
+                # Verify file too
+                gc.list_spreadsheet_files()
+                logger.info("✅ Authenticated with Google Sheets via local file (Verified)")
+                return gc
+            except Exception as e:
+                 logger.error(f"❌ File credentials invalid: {e}")
+                 return None
         
-        logger.warning("⚠️ No Google Creds found (checked GOOGLE_SERVICE_ACCOUNT_JSON and service_account.json). Skipping enrichment.")
+        logger.warning("⚠️ No valid Google Creds found. Skipping enrichment.")
         return None
 
     except Exception as e:
