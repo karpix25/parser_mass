@@ -18,12 +18,37 @@ SC_YT_BASE = "https://api.scrapecreators.com/v1/youtube/channel"
 SC_TT_BASE = "https://api.scrapecreators.com/v1/tiktok/profile"
 
 def _get_gclient():
+    """
+    Returns an authenticated gspread client.
+    Tries to read JSON credentials from:
+    1. GOOGLE_SERVICE_ACCOUNT_JSON environment variable (string content)
+    2. service_account.json file
+    """
     try:
-        if not os.path.exists("service_account.json"):
-            logger.warning("⚠️ service_account.json not found. Skipping enrichment.")
-            return None
-        gc = gspread.service_account(filename="service_account.json")
-        return gc
+        # 1. Try ENV variable
+        json_creds = os.getenv("GOOGLE_SERVICE_ACCOUNT_JSON")
+        if json_creds:
+            if not json_creds.strip().startswith("{"):
+                 # Maybe it's a path if user put path in env?
+                 # But usually it is content. Let's assume content if starts with {
+                 # If it doesn't start with {, maybe it is a path or invalid.
+                 pass
+            else:
+                 # Load from dict
+                 creds_dict = json.loads(json_creds)
+                 gc = gspread.service_account_from_dict(creds_dict)
+                 logger.info("✅ Authenticated with Google Sheets via ENV variable")
+                 return gc
+
+        # 2. Try file
+        if os.path.exists("service_account.json"):
+            gc = gspread.service_account(filename="service_account.json")
+            logger.info("✅ Authenticated with Google Sheets via local file")
+            return gc
+        
+        logger.warning("⚠️ No Google Creds found (checked GOOGLE_SERVICE_ACCOUNT_JSON and service_account.json). Skipping enrichment.")
+        return None
+
     except Exception as e:
         logger.error(f"❌ Failed to auth with Google Sheets: {e}")
         return None
