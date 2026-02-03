@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+{% block title %}Выбор YouTube каналов{% endblock %}
+{% block content %}
+<h1 class="page-title">YouTube каналы</h1>
+<p class="lead">Укажите каналы, которые нужно обновить. Количество роликов для загрузки берётся из Google Sheets.</p>
+
+<div class="card">
+  <div class="card__title">Каналы из таблицы</div>
+  <form method="post" action="/run-selected-youtube" class="stack">
+    <div class="scroll-area">
+      <table class="table">
+        <thead>
+          <tr>
+            <th></th>
+            <th>channel_id</th>
+            <th>Видео к обработке</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for ch in channels %}
+            <tr>
+              <td><input type="checkbox" name="channels" value="{{ ch.channel_id }}"></td>
+              <td>{{ ch.channel_id }}</td>
+              <td>{{ ch.amount }}</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    <button class="btn btn--primary" type="submit">🚀 Запустить выбранные каналы</button>
+  </form>
+</div>
+{% endblock %}

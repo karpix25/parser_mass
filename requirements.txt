@@ -1,0 +1,13 @@
+fastapi
+uvicorn
+jinja2
+aiohttp
+aiolimiter
+asyncpg
+apscheduler
+python-dotenv
+loguru
+tenacity
+python-multipart
+pydantic-settings
+gspread

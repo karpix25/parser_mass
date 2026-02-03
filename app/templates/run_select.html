@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% block title %}Выбор Instagram аккаунтов{% endblock %}
+{% block content %}
+<h1 class="page-title">Instagram аккаунты</h1>
+<p class="lead">Отметьте профили, которые нужно обновить прямо сейчас. Список подтягивается из Google Sheets.</p>
+
+<div class="card">
+  <div class="card__title">Доступные аккаунты</div>
+  <form method="post" action="/run-selected" class="stack">
+    <div class="checkbox-grid checkbox-grid--columns scroll-area">
+      {% for a in accounts %}
+        <label class="checkbox-item">
+          <input type="checkbox" name="accounts" value="{{ a.username }}">
+          <span>
+            <strong>{{ a.username }}</strong><br/>
+            <span class="muted">Видео к обработке: {{ a.amount }}</span>
+          </span>
+        </label>
+      {% endfor %}
+    </div>
+    <button class="btn btn--primary" type="submit">🚀 Запустить выбранные аккаунты</button>
+  </form>
+</div>
+{% endblock %}

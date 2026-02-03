@@ -1,0 +1,99 @@
+{% extends "base.html" %}
+{% block title %}История запусков{% endblock %}
+{% block content %}
+<h1 class="page-title">История запусков</h1>
+<p class="lead">Отслеживайте прогресс парсинга и смотрите, какие аккаунты и каналы были обновлены в последние прогон.
+</p>
+
+<div class="card-list">
+  {% for run in runs %}
+  <div class="card">
+    <div class="grid grid--cols-2">
+      <div>
+        <div class="muted">Запуск #{{ run.id }}</div>
+        <div class="card__title">{{ run.started_at.strftime('%Y-%m-%d %H:%M') }} → {{ run.finished_at.strftime('%H:%M')
+          }} (МСК)</div>
+        <div class="inline-list mb-sm">
+          {% set status_class = 'success' if run.status == 'success' else 'partial' if run.status == 'partial' else
+          'error' %}
+          <span class="status-badge {{ status_class }}">
+            {% if run.status == 'success' %}
+            ✅ Успешно
+            {% elif run.status == 'partial' %}
+            ⚠️ Частично
+            {% else %}
+            ❌ Ошибка
+            {% endif %}
+          </span>
+          <span class="pill">Аккаунтов: {{ run.total_accounts }}</span>
+          <span class="pill">Новые видео: {{ run.new_videos }}</span>
+          <span class="pill">Ошибок: {{ run.errors }}</span>
+        </div>
+      </div>
+      <div class="muted text-right">
+        Сохранено: {{ run.finished_at.strftime('%Y-%m-%d %H:%M') }}
+      </div>
+    </div>
+
+    {% if run.failed_accounts is defined and run.failed_accounts|length > 0 %}
+    <details class="mt-md">
+      <summary>❗ Ошибки ({{ run.failed_accounts|length }})</summary>
+      <ul class="mt-sm">
+        {% for fail in run.failed_accounts %}
+        <li class="mb-xs">
+          <details>
+            <summary style="cursor: pointer; outline: none;">
+              <span class="tag-chip {{ fail.platform }}">{{ fail.platform|e }}</span>
+              <span class="tag-chip">{{ (fail.value or "?")|e }}</span>
+              <span class="muted text-sm">...подробнее</span>
+            </summary>
+            <div class="mt-xs p-sm bg-muted rounded text-sm" style="white-space: pre-wrap; color: var(--destructive);">
+              {{ fail.reason|e }}
+            </div>
+          </details>
+        </li>
+        {% endfor %}
+      </ul>
+    </details>
+    {% endif %}
+
+    {% if run.accounts_json and run.accounts_json|length > 0 %}
+    {% if run.accounts_json %}
+    <details class="mt-md">
+      <summary>👤 Задействованные аккаунты ({{ run.accounts_json|length }})</summary>
+      <div class="inline-list mt-sm">
+        {% for acc in run.accounts_json %}
+        <span class="tag-chip">@{{ acc.value }}<span class="tag-chip__meta">· {{ acc.platform }}</span></span>
+        {% endfor %}
+      </div>
+    </details>
+    {% endif %}
+    {% endif %}
+  </div>
+  {% endfor %}
+</div>
+
+<h2 class="section-title">Последние активные аккаунты</h2>
+<div class="card">
+  <table class="table">
+    <thead>
+      <tr>
+        <th>Аккаунт</th>
+        <th>Последняя публикация</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for acc in accounts %}
+      <tr>
+        <td>{{ acc.account }}</td>
+        <td>{{ acc.publish_date }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<p class="muted centered mt-lg">
+  ⏰ Текущее время (МСК): {{ now_moscow }}
+</p>
+{% endblock %}

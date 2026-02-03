@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% block title %}Выбор TikTok профилей{% endblock %}
+{% block content %}
+<h1 class="page-title">TikTok профили</h1>
+<p class="lead">Выберите пользователей из таблицы, чтобы обновить их статистику. Количество роликов берётся из столбца Google Sheets.</p>
+
+<div class="card">
+  <div class="card__title">Список профилей</div>
+  <form method="post" action="/run-selected-tiktok" class="stack">
+    <div class="checkbox-grid checkbox-grid--columns scroll-area">
+      {% for p in profiles %}
+        <label class="checkbox-item">
+          <input type="checkbox" name="profiles" value="{{ p.user_id }}">
+          <span>
+            <strong>{{ p.username }}</strong><br/>
+            <span class="muted">ID: {{ p.user_id }} · Видео к обработке: {{ p.amount }}</span>
+          </span>
+        </label>
+      {% endfor %}
+    </div>
+    <button class="btn btn--primary" type="submit">🚀 Запустить выбранные профили</button>
+  </form>
+</div>
+{% endblock %}
