@@ -63,14 +63,13 @@ async def enrich_youtube_sheet(gc: gspread.Client, session: aiohttp.ClientSessio
         headers = ws.row_values(1)
         
         # Индексы колонок (1-based)
-        # Ищем колонку с "каналом" (id или ссылка)
         col_id_idx = _find_col_idx(headers, ["id профиля", "id_профиля", "idпрофиля", "channel_id", "channel id"])
         col_video_idx = _find_col_idx(headers, ["видео", "video", "amount", "количество_видео", "количество видео"])
+        col_subs_idx = _find_col_idx(headers, ["подписки", "subscribers", "followers"])
+        col_date_idx = _find_col_idx(headers, ["дата обновления", "дата_обновления", "date", "updated_at"])
         
-        # Если нет колонки для записи видео, пробуем найти 'amount' или создаем? 
-        # Пока предполагаем что структура есть, просто обновляем.
-        if col_id_idx == -1 or col_video_idx == -1:
-            logger.warning(f"⚠️ YouTube Sheet: Could not find required columns (ID or Video Count). Headers: {headers}")
+        if col_id_idx == -1:
+            logger.warning(f"⚠️ YouTube Sheet: Could not find ID column. Headers: {headers}")
             return
 
         # Читаем все данные
@@ -115,18 +114,16 @@ async def enrich_youtube_sheet(gc: gspread.Client, session: aiohttp.ClientSessio
                 
                 new_id = data.get("id")
                 
-                # Ищем количество видео
+                # Ищем количество видео и подписок
                 stats = data.get("statistics") or {}
                 video_count = stats.get("videoCount")
+                subs_count = stats.get("subscriberCount")
                 
                 # Если в stats пусто, ищем в корне (бывает по-разному в разных версиях API)
                 if not video_count:
-                    video_count = data.get("videoCount")
-                
-                if not video_count and "videoCountText" in data:
-                     # "1.2K videos" -> parse? No, API usually has Int field.
-                     # Let's trust videoCount or videoCountInt
-                     video_count = data.get("videoCountInt")
+                    video_count = data.get("videoCount") or data.get("videoCountInt")
+                if not subs_count:
+                    subs_count = data.get("subscriberCount") or data.get("subscriberCountInt")
 
                 # Обновляем ID если он был не ID (например, handle)
                 # Пользователь просил "айди профиля и кол-во видео"
@@ -137,8 +134,17 @@ async def enrich_youtube_sheet(gc: gspread.Client, session: aiohttp.ClientSessio
                     cells_to_update.append(gspread.Cell(real_row_idx, col_id_idx, new_id))
                 
                 # Обновляем количество видео
-                if video_count is not None:
+                if video_count is not None and col_video_idx != -1:
                      cells_to_update.append(gspread.Cell(real_row_idx, col_video_idx, str(video_count)))
+                
+                # Обновляем подписки
+                if subs_count is not None and col_subs_idx != -1:
+                     cells_to_update.append(gspread.Cell(real_row_idx, col_subs_idx, str(subs_count)))
+                
+                # Обновляем дату
+                if col_date_idx != -1:
+                     today_str = datetime.utcnow().strftime("%Y-%m-%d")
+                     cells_to_update.append(gspread.Cell(real_row_idx, col_date_idx, today_str))
             
             await asyncio.sleep(0.1) # Throttle slightly
 
@@ -172,8 +178,10 @@ async def enrich_tiktok_sheet(gc: gspread.Client, session: aiohttp.ClientSession
         
         # Ищем колонки
         col_user_idx = _find_col_idx(headers, ["usernames", "username", "логин", "login", "handle"])
-        col_id_idx   = _find_col_idx(headers, ["id профиля", "id_профиля", "idпрофиля", "id_profile", "user_id", "user id"])
+        col_id_idx   = _find_col_idx(headers, ["id_профиля", "idпрофиля", "id_profile", "user_id", "user id", "id профиля"])
         col_video_idx = _find_col_idx(headers, ["видео", "video", "amount", "количество_видео", "количество видео"])
+        col_subs_idx = _find_col_idx(headers, ["подписки", "subscribers", "followers", "подписчики"])
+        col_date_idx = _find_col_idx(headers, ["дата обновления", "дата_обновления", "date", "updated_at"])
         
         if col_user_idx == -1: # Username обязателен для поиска
             logger.warning("TikTok Sheet: Username column not found.")
@@ -210,6 +218,7 @@ async def enrich_tiktok_sheet(gc: gspread.Client, session: aiohttp.ClientSession
                 
                 uid = user_data.get("id")
                 v_count = stats.get("videoCount")
+                s_count = stats.get("followerCount")
                 
                 # Обновляем ID
                 if uid and col_id_idx != -1:
@@ -218,6 +227,15 @@ async def enrich_tiktok_sheet(gc: gspread.Client, session: aiohttp.ClientSession
                 # Обновляем Video Count
                 if v_count is not None and col_video_idx != -1:
                     cells_to_update.append(gspread.Cell(real_row_idx, col_video_idx, str(v_count)))
+                
+                # Обновляем Подписки
+                if s_count is not None and col_subs_idx != -1:
+                    cells_to_update.append(gspread.Cell(real_row_idx, col_subs_idx, str(s_count)))
+                    
+                # Обновляем Дату
+                if col_date_idx != -1:
+                    today_str = datetime.utcnow().strftime("%Y-%m-%d")
+                    cells_to_update.append(gspread.Cell(real_row_idx, col_date_idx, today_str))
             
             await asyncio.sleep(0.1)
 
