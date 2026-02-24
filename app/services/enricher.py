@@ -49,7 +49,8 @@ async def enrich_youtube_sheet(gc: gspread.Client, session: aiohttp.ClientSessio
         return
     
     try:
-        sh = gc.open_by_url(settings.YOUTUBE_SHEET_URL)
+        from gspread.utils import extract_id_from_url
+        sh = gc.open_by_key(extract_id_from_url(settings.YOUTUBE_SHEET_URL))
         ws = sh.sheet1 # Берем первый лист
         
         headers = ws.row_values(1)
@@ -149,7 +150,8 @@ async def enrich_tiktok_sheet(gc: gspread.Client, session: aiohttp.ClientSession
         return
 
     try:
-        sh = gc.open_by_url(settings.TIKTOK_SHEET_URL)
+        from gspread.utils import extract_id_from_url
+        sh = gc.open_by_key(extract_id_from_url(settings.TIKTOK_SHEET_URL))
         ws = sh.sheet1 
         
         headers = ws.row_values(1)
