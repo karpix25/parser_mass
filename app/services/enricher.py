@@ -64,8 +64,8 @@ async def enrich_youtube_sheet(gc: gspread.Client, session: aiohttp.ClientSessio
         
         # Индексы колонок (1-based)
         # Ищем колонку с "каналом" (id или ссылка)
-        col_id_idx = _find_col_idx(headers, ["id_профиля", "idпрофиля", "channel_id", "channel id"])
-        col_video_idx = _find_col_idx(headers, ["видео", "video", "amount", "количество_видео"])
+        col_id_idx = _find_col_idx(headers, ["id профиля", "id_профиля", "idпрофиля", "channel_id", "channel id"])
+        col_video_idx = _find_col_idx(headers, ["видео", "video", "amount", "количество_видео", "количество видео"])
         
         # Если нет колонки для записи видео, пробуем найти 'amount' или создаем? 
         # Пока предполагаем что структура есть, просто обновляем.
@@ -172,8 +172,8 @@ async def enrich_tiktok_sheet(gc: gspread.Client, session: aiohttp.ClientSession
         
         # Ищем колонки
         col_user_idx = _find_col_idx(headers, ["usernames", "username", "логин", "login", "handle"])
-        col_id_idx   = _find_col_idx(headers, ["id_профиля", "idпрофиля", "id_profile", "user_id"])
-        col_video_idx = _find_col_idx(headers, ["видео", "video", "amount", "количество_видео"])
+        col_id_idx   = _find_col_idx(headers, ["id профиля", "id_профиля", "idпрофиля", "id_profile", "user_id", "user id"])
+        col_video_idx = _find_col_idx(headers, ["видео", "video", "amount", "количество_видео", "количество видео"])
         
         if col_user_idx == -1: # Username обязателен для поиска
             logger.warning("TikTok Sheet: Username column not found.")
