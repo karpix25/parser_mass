@@ -63,13 +63,18 @@ async def enrich_youtube_sheet(gc: gspread.Client, session: aiohttp.ClientSessio
         headers = ws.row_values(1)
         
         # Индексы колонок (1-based)
-        col_id_idx = _find_col_idx(headers, ["id профиля", "id_профиля", "idпрофиля", "channel_id", "channel id"])
+        # Для YouTube ID профиля всегда берется из колонки A (индекс 1)
+        col_id_source_idx = 1
+        
+        # Индексы для записи (ищем по заголовкам)
+        col_id_write_idx = _find_col_idx(headers, ["id профиля", "id_профиля", "idпрофиля", "channel_id", "channel id"])
         col_video_idx = _find_col_idx(headers, ["видео", "video", "amount", "количество_видео", "количество видео"])
         col_subs_idx = _find_col_idx(headers, ["подписки", "subscribers", "followers"])
         col_date_idx = _find_col_idx(headers, ["дата обновления", "дата_обновления", "date", "updated_at"])
         
-        if col_id_idx == -1:
-            logger.warning(f"⚠️ YouTube Sheet: Could not find ID column. Headers: {headers}")
+        # Проверяем, нашли ли куда писать обновленные данные
+        if col_id_write_idx == -1:
+            logger.warning(f"⚠️ YouTube Sheet: Could not find ID column for writing. Headers: {headers}")
             return
 
         # Читаем все данные
@@ -87,8 +92,8 @@ async def enrich_youtube_sheet(gc: gspread.Client, session: aiohttp.ClientSessio
         for i, row in enumerate(rows):
             real_row_idx = i + 2 # 1-based, +1 header
             
-            # Безопасное получение значения
-            current_id_val = row[col_id_idx - 1] if len(row) >= col_id_idx else ""
+            # Безопасное получение значения из колонки А (индекс 0 в массиве)
+            current_id_val = row[col_id_source_idx - 1] if len(row) >= col_id_source_idx else ""
             
             if not current_id_val:
                 continue
@@ -131,7 +136,7 @@ async def enrich_youtube_sheet(gc: gspread.Client, session: aiohttp.ClientSessio
                 if new_id and new_id != current_id_val:
                     # Но если мы перезапишем Handle на ID, удобно ли это пользователю?
                     # Пользователь сказал "заносить их в таблицу". Думаю, ID надежнее.
-                    cells_to_update.append(gspread.Cell(real_row_idx, col_id_idx, new_id))
+                    cells_to_update.append(gspread.Cell(real_row_idx, col_id_write_idx, new_id))
                 
                 # Обновляем количество видео
                 if video_count is not None and col_video_idx != -1:
@@ -176,16 +181,14 @@ async def enrich_tiktok_sheet(gc: gspread.Client, session: aiohttp.ClientSession
         
         headers = ws.row_values(1)
         
-        # Ищем колонки
-        col_user_idx = _find_col_idx(headers, ["usernames", "username", "логин", "login", "handle"])
-        col_id_idx   = _find_col_idx(headers, ["id_профиля", "idпрофиля", "id_profile", "user_id", "user id", "id профиля"])
+        # Ищем колонки для записи
+        # Для TikTok логин всегда берется из колонки A (индекс 1)
+        col_user_source_idx = 1
+        
+        col_id_write_idx   = _find_col_idx(headers, ["id_профиля", "idпрофиля", "id_profile", "user_id", "user id", "id профиля"])
         col_video_idx = _find_col_idx(headers, ["видео", "video", "amount", "количество_видео", "количество видео"])
         col_subs_idx = _find_col_idx(headers, ["подписки", "subscribers", "followers", "подписчики"])
         col_date_idx = _find_col_idx(headers, ["дата обновления", "дата_обновления", "date", "updated_at"])
-        
-        if col_user_idx == -1: # Username обязателен для поиска
-            logger.warning("TikTok Sheet: Username column not found.")
-            return
 
         all_values = ws.get_all_values()
         rows = all_values[1:]
@@ -196,7 +199,7 @@ async def enrich_tiktok_sheet(gc: gspread.Client, session: aiohttp.ClientSession
         for i, row in enumerate(rows):
             real_row_idx = i + 2
             
-            username = row[col_user_idx - 1] if len(row) >= col_user_idx else ""
+            username = row[col_user_source_idx - 1] if len(row) >= col_user_source_idx else ""
             if not username:
                 continue
             
@@ -221,8 +224,8 @@ async def enrich_tiktok_sheet(gc: gspread.Client, session: aiohttp.ClientSession
                 s_count = stats.get("followerCount")
                 
                 # Обновляем ID
-                if uid and col_id_idx != -1:
-                    cells_to_update.append(gspread.Cell(real_row_idx, col_id_idx, str(uid)))
+                if uid and col_id_write_idx != -1:
+                    cells_to_update.append(gspread.Cell(real_row_idx, col_id_write_idx, str(uid)))
                 
                 # Обновляем Video Count
                 if v_count is not None and col_video_idx != -1:
