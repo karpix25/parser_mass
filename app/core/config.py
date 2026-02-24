@@ -19,6 +19,10 @@ class Settings(BaseSettings):
     TAGS_SHEET_URL: str | None = None
     YOUTUBE_SHEET_URL: str | None = None
     TIKTOK_SHEET_URL: str | None = None
+    OUTPUT_SHEET_URL: str | None = None  # Deprecated in favor of platform specific
+    YOUTUBE_OUTPUT_SHEET_URL: str | None = None
+    TIKTOK_OUTPUT_SHEET_URL: str | None = None
+    GOOGLE_CREDENTIALS_B64: str | None = None
     
     # Instagram / RapidAPI
     RAPIDAPI_KEY: str

@@ -17,6 +17,7 @@ from app.parser_instagram import fetch_instagram_videos
 from app.parser_youtube import process_youtube_channel
 from app.parser_tiktok import process_tiktok_profile
 from app.tagging import match_tags
+from app.services.gsheets import append_to_sheet
 
 logger = logging.getLogger(__name__)
 
@@ -142,6 +143,7 @@ async def _process_youtube_list(session, pool, tags, only_accounts: set[str] | N
     total_accounts = len(yt_channels)
     new_videos = 0
     failed_list = []
+    sheet_rows = []
 
     async with pool.acquire() as conn:
         for ch in yt_channels:
@@ -164,10 +166,18 @@ async def _process_youtube_list(session, pool, tags, only_accounts: set[str] | N
                     {"channel_id": ch.get("channel_id", ""), "reason": reason}
                 )
                 continue
-            new_videos += stats["inserted"] + stats["updated"]
+            
+            inserted = stats.get("inserted", 0)
+            updated = stats.get("updated", 0)
+            new_videos += inserted + updated
+            
+            # GSheets export requirement: Profile ID, count, parsing date
+            today_str = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
+            sheet_rows.append([ch["channel_id"], new_videos, today_str])
+            
             logger.info(f"✅ YT {ch['channel_id']} done | {stats}")
 
-    return total_accounts, new_videos, failed_list
+    return total_accounts, new_videos, failed_list, sheet_rows
 
 
 async def _process_tiktok_list(session, pool, tags, only_accounts: set[str] | None):
@@ -193,6 +203,7 @@ async def _process_tiktok_list(session, pool, tags, only_accounts: set[str] | No
     total_accounts = len(tiktok_profiles)
     new_videos = 0
     failed_list = []
+    sheet_rows = []
 
     async with pool.acquire() as conn:
         for profile in tiktok_profiles:
@@ -221,10 +232,16 @@ async def _process_tiktok_list(session, pool, tags, only_accounts: set[str] | No
                     {"user_id": profile.get("user_id", ""), "reason": reason}
                 )
                 continue
-            new_videos += stats.get("inserted", 0)
+                
+            inserted = stats.get("inserted", 0)
+            new_videos += inserted
+            
+            today_str = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
+            sheet_rows.append([profile.get("username", profile.get("user_id")), inserted, today_str])
+            
             logger.info(f"✅ TikTok {profile['user_id']} done | {stats}")
 
-    return total_accounts, new_videos, failed_list
+    return total_accounts, new_videos, failed_list, sheet_rows
 
 
 # ---------------------------------------------------------------------------
@@ -273,7 +290,6 @@ async def parse_all(only_accounts: list[str] | None = None):
     }
     
     platforms = ["instagram", "youtube", "tiktok"]
-    
     for i, res in enumerate(results):
         platform_name = platforms[i]
         if isinstance(res, Exception):
@@ -281,7 +297,18 @@ async def parse_all(only_accounts: list[str] | None = None):
             total_err += 1 # Count the whole platform failure as an error? Or just log it.
             failed_accounts[platform_name].append({"error": str(res)})
         else:
-            acc_count, new_count, failures = res
+            if platform_name == "instagram":
+                acc_count, new_count, failures = res
+            else:
+                acc_count, new_count, failures, sheet_export = res
+                if sheet_export:
+                    if platform_name == "youtube" and settings.YOUTUBE_OUTPUT_SHEET_URL:
+                        logger.info(f"Attempting to write {len(sheet_export)} rows to YouTube Google Sheet...")
+                        await append_to_sheet(sheet_export, settings.YOUTUBE_OUTPUT_SHEET_URL)
+                    elif platform_name == "tiktok" and settings.TIKTOK_OUTPUT_SHEET_URL:
+                        logger.info(f"Attempting to write {len(sheet_export)} rows to TikTok Google Sheet...")
+                        await append_to_sheet(sheet_export, settings.TIKTOK_OUTPUT_SHEET_URL)
+                    
             total_acc += acc_count
             total_new += new_count
             if failures:
@@ -340,7 +367,10 @@ async def parse_youtube_only(selected_channels: list[str]):
         await preload_reference_data(session)
         tags = await fetch_tags(session)
         
-        total_acc, total_new, failures = await _process_youtube_list(session, pool, tags, target)
+        total_acc, total_new, failures, sheet_export = await _process_youtube_list(session, pool, tags, target)
+        
+        if sheet_export and settings.YOUTUBE_OUTPUT_SHEET_URL:
+            await append_to_sheet(sheet_export, settings.YOUTUBE_OUTPUT_SHEET_URL)
 
     finished = datetime.utcnow()
     errors = len(failures)
@@ -375,7 +405,10 @@ async def parse_tiktok_only(selected_profiles: list[str]):
         await preload_reference_data(session)
         tags = await fetch_tags(session)
         
-        total_acc, total_new, failures = await _process_tiktok_list(session, pool, tags, target)
+        total_acc, total_new, failures, sheet_export = await _process_tiktok_list(session, pool, tags, target)
+        
+        if sheet_export and settings.TIKTOK_OUTPUT_SHEET_URL:
+            await append_to_sheet(sheet_export, settings.TIKTOK_OUTPUT_SHEET_URL)
 
     finished = datetime.utcnow()
     errors = len(failures)
