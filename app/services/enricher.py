@@ -27,7 +27,14 @@ async def _fetch_sc_data(session, url, params):
     try:
         async with session.get(url, headers=headers, params=params, timeout=30) as resp:
             if resp.status == 200:
-                return await resp.json()
+                data = await resp.json()
+                # АПИ иногда возвращает 200, но внутри пишет accountDoesNotExist: true
+                if data.get("accountDoesNotExist"):
+                    return {"error": "not_found"}
+                return data
+            elif resp.status == 404:
+                # Специальный код для "удален / не найден"
+                return {"error": "not_found"}
             else:
                 text = await resp.text()
                 logger.debug(f"SC API Error {resp.status} for {params}: {text[:200]}")
@@ -111,24 +118,40 @@ async def enrich_youtube_sheet(gc: gspread.Client, session: aiohttp.ClientSessio
             data = await _fetch_sc_data(session, SC_YT_BASE, params)
             
             if data:
+                # Если вернулся 404 - аккаунт не найден (удален)
+                if data.get("error") == "not_found":
+                    if col_subs_idx != -1:
+                        cells_to_update.append(gspread.Cell(real_row_idx, col_subs_idx, "УДАЛЕН"))
+                    
+                    # Обновляем дату (чтобы понимать когда проверили)
+                    if col_date_idx != -1:
+                         today_str = datetime.utcnow().strftime("%Y-%m-%d")
+                         cells_to_update.append(gspread.Cell(real_row_idx, col_date_idx, today_str))
+                    continue
+
                 # Парсим ответ
                 # SC v1/youtube/channel response fields
-                # Usually: { "id": "...", "statistics": { "videoCount": ... } } OR similar
-                # User screenshot endpoint: Channel Details.
-                # Let's inspect structure safely
+                # documentation: { "channelId": "...", "subscriberCount": 2750000, "videoCountText": "9,221 videos" }
                 
-                new_id = data.get("id")
+                new_id = data.get("channelId")
                 
                 # Ищем количество видео и подписок
-                stats = data.get("statistics") or {}
-                video_count = stats.get("videoCount")
-                subs_count = stats.get("subscriberCount")
+                subs_count = data.get("subscriberCount")
+                video_count_text = data.get("videoCountText")
+                video_count = None
                 
-                # Если в stats пусто, ищем в корне (бывает по-разному в разных версиях API)
+                if video_count_text:
+                    # '9,221 videos' -> 9221
+                    import re
+                    match = re.search(r'([\d,]+)', video_count_text)
+                    if match:
+                        video_count = int(match.group(1).replace(',', ''))
+                
+                # fallback
                 if not video_count:
                     video_count = data.get("videoCount") or data.get("videoCountInt")
                 if not subs_count:
-                    subs_count = data.get("subscriberCount") or data.get("subscriberCountInt")
+                    subs_count = data.get("subscriberCountInt")
 
                 # Обновляем ID если он был не ID (например, handle)
                 # Пользователь просил "айди профиля и кол-во видео"
@@ -214,6 +237,17 @@ async def enrich_tiktok_sheet(gc: gspread.Client, session: aiohttp.ClientSession
             data = await _fetch_sc_data(session, SC_TT_BASE, params)
             
             if data:
+                # Если вернулся 404 - аккаунт не найден (удален)
+                if data.get("error") == "not_found":
+                    if col_subs_idx != -1:
+                        cells_to_update.append(gspread.Cell(real_row_idx, col_subs_idx, "УДАЛЕН"))
+                    
+                    # Обновляем Дату
+                    if col_date_idx != -1:
+                        today_str = datetime.utcnow().strftime("%Y-%m-%d")
+                        cells_to_update.append(gspread.Cell(real_row_idx, col_date_idx, today_str))
+                    continue
+
                 # SC v1/tiktok/profile response
                 # user: { id: ... }, stats: { videoCount: ... }
                 user_data = data.get("user") or {}
