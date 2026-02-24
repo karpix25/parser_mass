@@ -45,13 +45,20 @@ def _find_col_idx(headers: list[str], possible_names: list[str]) -> int:
     return -1
 
 async def enrich_youtube_sheet(gc: gspread.Client, session: aiohttp.ClientSession):
-    if not settings.YOUTUBE_SHEET_URL:
+    target_url = settings.YOUTUBE_OUTPUT_SHEET_URL or settings.YOUTUBE_SHEET_URL
+    if not target_url:
         return
     
     try:
+        import re
         from gspread.utils import extract_id_from_url
-        sh = gc.open_by_key(extract_id_from_url(settings.YOUTUBE_SHEET_URL))
-        ws = sh.sheet1 # Берем первый лист
+        sh = gc.open_by_key(extract_id_from_url(target_url))
+        
+        match = re.search(r'(?:gid=)(\d+)', target_url)
+        if match:
+            ws = sh.get_worksheet_by_id(int(match.group(1)))
+        else:
+            ws = sh.sheet1
         
         headers = ws.row_values(1)
         
@@ -146,13 +153,20 @@ async def enrich_youtube_sheet(gc: gspread.Client, session: aiohttp.ClientSessio
 
 
 async def enrich_tiktok_sheet(gc: gspread.Client, session: aiohttp.ClientSession):
-    if not settings.TIKTOK_SHEET_URL:
+    target_url = settings.TIKTOK_OUTPUT_SHEET_URL or settings.TIKTOK_SHEET_URL
+    if not target_url:
         return
 
     try:
+        import re
         from gspread.utils import extract_id_from_url
-        sh = gc.open_by_key(extract_id_from_url(settings.TIKTOK_SHEET_URL))
-        ws = sh.sheet1 
+        sh = gc.open_by_key(extract_id_from_url(target_url))
+        
+        match = re.search(r'(?:gid=)(\d+)', target_url)
+        if match:
+            ws = sh.get_worksheet_by_id(int(match.group(1)))
+        else:
+            ws = sh.sheet1
         
         headers = ws.row_values(1)
         
