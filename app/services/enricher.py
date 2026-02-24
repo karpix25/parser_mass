@@ -19,75 +19,8 @@ SC_YT_BASE = "https://api.scrapecreators.com/v1/youtube/channel"
 SC_TT_BASE = "https://api.scrapecreators.com/v1/tiktok/profile"
 
 def _get_gclient():
-    """
-    Returns an authenticated gspread client.
-    Tries to read JSON credentials from:
-    1. GOOGLE_SERVICE_ACCOUNT_JSON environment variable (string content)
-    2. service_account.json file
-    """
-    try:
-        # 1. Try ENV variable
-        json_creds = os.getenv("GOOGLE_SERVICE_ACCOUNT_JSON")
-        if json_creds:
-            json_creds = json_creds.strip()
-            # If it doesn't look like JSON (no curly braces), try Base64 decoding
-            if not json_creds.startswith("{"):
-                 try:
-                     decoded_bytes = base64.b64decode(json_creds)
-                     json_creds = decoded_bytes.decode("utf-8")
-                     logger.info("🔓 Decoded Base64 credentials from ENV")
-                 except Exception:
-                     # e.g. padding error, not base64 -> ignore or let json.loads fail
-                     pass
-            
-            if json_creds.startswith("{"):
-                 # Load from dict
-                 creds_dict = json.loads(json_creds)
-                 
-                 # [FIX] Handle escaped newlines in private_key if coming from ENV
-                 if "private_key" in creds_dict:
-                     pk = creds_dict["private_key"]
-                     # If key has literal \n characters but not actual newlines, fix it
-                     if "\\n" in pk:
-                         creds_dict["private_key"] = pk.replace("\\n", "\n")
-                         logger.info("🔧 Fixed escaped newlines in ENV private_key")
-                     
-                     # Debug print to see what we actually have (safe snippet)
-                     debug_key = creds_dict["private_key"]
-                     logger.info(f"🔑 Key snippet: {debug_key[:40].replace(chr(10), '[NL]')}")
-                 
-                 gc = gspread.service_account_from_dict(creds_dict)
-                 
-                 # [NEW] Verify credentials immediately
-                 try:
-                     # Attempt a lightweight call to check signature
-                     # list_spreadsheet_files raises APIError if auth fails
-                     gc.list_spreadsheet_files()
-                     logger.info("✅ Authenticated with Google Sheets via ENV variable (Verified)")
-                     return gc
-                 except Exception as exc:
-                     logger.warning(f"⚠️ ENV credentials invalid (Signature check failed): {exc}. Falling back to file...")
-            
-            # If we fall through here, ENV failed or didn't exist
-
-        # 2. Try file
-        if os.path.exists("service_account.json"):
-            try:
-                gc = gspread.service_account(filename="service_account.json")
-                # Verify file too
-                gc.list_spreadsheet_files()
-                logger.info("✅ Authenticated with Google Sheets via local file (Verified)")
-                return gc
-            except Exception as e:
-                 logger.error(f"❌ File credentials invalid: {e}")
-                 return None
-        
-        logger.warning("⚠️ No valid Google Creds found. Skipping enrichment.")
-        return None
-
-    except Exception as e:
-        logger.error(f"❌ Failed to auth with Google Sheets: {e}")
-        return None
+    from app.services.gsheets import get_gspread_client
+    return get_gspread_client()
 
 async def _fetch_sc_data(session, url, params):
     headers = {"x-api-key": SC_API_KEY}
