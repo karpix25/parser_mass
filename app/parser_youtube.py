@@ -66,6 +66,12 @@ async def fetch_shorts_simple(session, channel_id: str, amount: int = 20):
             for key in ("data", "videos", "shorts", "items", "results"):
                 if key in data and isinstance(data[key], list):
                     return data[key]
+            
+            # If the API returns shorts as numerical keys directly in the root dict
+            numerical_items = [v for k, v in data.items() if str(k).isdigit() and isinstance(v, dict)]
+            if numerical_items:
+                return numerical_items
+
             lists = [v for k, v in data.items() if isinstance(v, list)]
             if lists:
                 return lists[0]
