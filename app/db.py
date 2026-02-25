@@ -101,6 +101,14 @@ async def _ensure_schema_and_tables(pool: asyncpg.Pool) -> None:
             CREATE UNIQUE INDEX ux_video_stats_video_url
                 ON {schema}.video_stats (video_url);
         END IF;
+
+        IF NOT EXISTS (
+            SELECT 1 FROM pg_indexes
+            WHERE schemaname = '{schema}' AND indexname = 'ux_video_stats_video_id'
+        ) THEN
+            CREATE UNIQUE INDEX ux_video_stats_video_id
+                ON {schema}.video_stats (video_id);
+        END IF;
     END$$;
 
     CREATE TABLE IF NOT EXISTS {schema}.reels_views_history (
