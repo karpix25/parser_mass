@@ -102,40 +102,41 @@ async def process_tiktok_profile(
     else:
         account_label = user_id
 
-    async with conn.transaction():
-        for idx, v in enumerate(videos, start=1):
-            try:
-                video_id = v.get("id") or v.get("aweme_id")
-                url = v.get("url") or f"https://www.tiktok.com/@/video/{video_id}"
-                title = v.get("title") or v.get("desc") or ""
-                description = v.get("desc") or v.get("description") or ""
-                stats = v.get("stats") or v.get("statistics") or {}
+    for idx, v in enumerate(videos, start=1):
+        try:
+            video_id = v.get("id") or v.get("aweme_id")
+            url = v.get("url") or f"https://www.tiktok.com/@/video/{video_id}"
+            title = v.get("title") or v.get("desc") or ""
+            description = v.get("desc") or v.get("description") or ""
+            stats = v.get("stats") or v.get("statistics") or {}
 
-                # --- анализ текста
-                text_for_tags = f"{title}\n{description}".strip()
-                client_tag, company, product, _matched = match_tags(text_for_tags, tags)
+            # --- анализ текста
+            text_for_tags = f"{title}\n{description}".strip()
+            client_tag, company, product, _matched = match_tags(text_for_tags, tags)
 
-                publish_time = v.get("create_time") or v.get("published_at")
-                if publish_time:
-                    publish_date = datetime.utcfromtimestamp(int(publish_time)).date()
-                    iso = datetime.utcfromtimestamp(int(publish_time)).isocalendar()
-                    iso_year, week = iso.year, iso.week
-                else:
-                    now = datetime.utcnow()
-                    iso_year, week, publish_date = now.year, now.isocalendar().week, now.date()
+            publish_time = v.get("create_time") or v.get("published_at")
+            if publish_time:
+                publish_date = datetime.utcfromtimestamp(int(publish_time)).date()
+                iso = datetime.utcfromtimestamp(int(publish_time)).isocalendar()
+                iso_year, week = iso.year, iso.week
+            else:
+                now = datetime.utcnow()
+                iso_year, week, publish_date = now.year, now.isocalendar().week, now.date()
 
-                views = int(stats.get("play_count") or 0)
-                likes = int(stats.get("digg_count") or 0)
-                comments = int(stats.get("comment_count") or 0)
+            views = int(stats.get("play_count") or 0)
+            likes = int(stats.get("digg_count") or 0)
+            comments = int(stats.get("comment_count") or 0)
 
+            async with conn.transaction():
                 await conn.execute(f"""
                 INSERT INTO {PG_SCHEMA}.video_stats
                     (platform, account, video_id, video_url, publish_date,
                      iso_year, week, likes, views, comments, caption,
                      client_tag, company, product, created_at, updated_at)
                 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,NOW(),NOW())
-                ON CONFLICT (video_url) DO UPDATE SET
+                ON CONFLICT (video_id) DO UPDATE SET
                     account = EXCLUDED.account,
+                    video_url = EXCLUDED.video_url,
                     likes = EXCLUDED.likes,
                     views = EXCLUDED.views,
                     comments = EXCLUDED.comments,
@@ -150,17 +151,17 @@ async def process_tiktok_profile(
                     likes, views, comments, title,
                     client_tag, company, product
                 )
-                results["inserted"] += 1
-                if idx % 20 == 0 or idx == len(videos):
-                    logger.info(
-                        "📈 TikTok %s: прогресс %s/%s | ins=%s fail=%s",
-                        account_label, idx, len(videos), results["inserted"], results["failed"]
-                    )
-            except Exception as e:
-                logger.warning("⚠️ TikTok %s: видео %s не обработано (%s)", account_label, video_id, e)
-                results["failed"] += 1
+            results["inserted"] += 1
+            if idx % 20 == 0 or idx == len(videos):
+                logger.info(
+                    "📈 TikTok %s: прогресс %s/%s | ins=%s fail=%s",
+                    account_label, idx, len(videos), results["inserted"], results["failed"]
+                )
+        except Exception as e:
+            logger.warning("⚠️ TikTok %s: видео %s не обработано (%s)", account_label, video_id, e)
+            results["failed"] += 1
 
-            await asyncio.sleep(_MIN_INTERVAL)
+        await asyncio.sleep(_MIN_INTERVAL)
 
     logger.info(
         "🏁 TikTok %s: готово | всего=%s ins=%s fail=%s",

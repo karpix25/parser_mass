@@ -96,18 +96,19 @@ async def _process_instagram_list(session, pool, tags, only_accounts: set[str] |
             if not videos:
                 continue
 
-            async with conn.transaction():
-                for v in videos:
-                    client_tag, company, product, _matched = match_tags(v["caption"], tags)
+            for v in videos:
+                client_tag, company, product, _matched = match_tags(v["caption"], tags)
 
+                async with conn.transaction():
                     await conn.execute(f"""
                     INSERT INTO {settings.PG_SCHEMA}.video_stats
                         (platform, account, video_id, video_url, publish_date,
                          iso_year, week, likes, views, comments, caption,
                          client_tag, company, product, created_at, updated_at)
                     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,NOW(),NOW())
-                    ON CONFLICT (video_url) DO UPDATE SET
+                    ON CONFLICT (video_id) DO UPDATE SET
                         account=EXCLUDED.account,
+                        video_url=EXCLUDED.video_url,
                         likes=EXCLUDED.likes, views=EXCLUDED.views, comments=EXCLUDED.comments,
                         caption=EXCLUDED.caption, client_tag=EXCLUDED.client_tag,
                         company=EXCLUDED.company, product=EXCLUDED.product, updated_at=NOW();
