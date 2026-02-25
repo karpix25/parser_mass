@@ -264,8 +264,8 @@ async def parse_all(only_accounts: list[str] | None = None):
         except Exception as e:
             logger.error(f"⚠️ Enrichment failed: {e}")
 
-        await preload_reference_data(session)
-        tags = await fetch_tags(session)
+        await preload_reference_data(session, force=True)
+        tags = await fetch_tags(session, force=True)
 
         # Run platforms in parallel
         logger.info("🚀 Starting parallel parsing for Instagram, YouTube, TikTok...")
@@ -365,8 +365,8 @@ async def parse_youtube_only(selected_channels: list[str]):
     target = {c.casefold() for c in selected_channels}
     
     async with ClientSession() as session:
-        await preload_reference_data(session)
-        tags = await fetch_tags(session)
+        await preload_reference_data(session, force=True)
+        tags = await fetch_tags(session, force=True)
         
         total_acc, total_new, failures, sheet_export = await _process_youtube_list(session, pool, tags, target)
         
@@ -403,8 +403,8 @@ async def parse_tiktok_only(selected_profiles: list[str]):
     target = {p.casefold() for p in selected_profiles}
     
     async with ClientSession() as session:
-        await preload_reference_data(session)
-        tags = await fetch_tags(session)
+        await preload_reference_data(session, force=True)
+        tags = await fetch_tags(session, force=True)
         
         total_acc, total_new, failures, sheet_export = await _process_tiktok_list(session, pool, tags, target)
         

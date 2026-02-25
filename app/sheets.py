@@ -235,22 +235,22 @@ def _map_tiktok(row: dict[str, str]) -> dict | None:
 
 # --- Public API ---
 
-async def fetch_accounts(session=None) -> list[dict]:
-    return await _get_cached_or_fetch("accounts", settings.ACCOUNTS_SHEET_URL, _map_account, session)
+async def fetch_accounts(session=None, force: bool = False) -> list[dict]:
+    return await _get_cached_or_fetch("accounts", settings.ACCOUNTS_SHEET_URL, _map_account, session, force=force)
 
-async def fetch_tags(session=None) -> list[dict]:
-    return await _get_cached_or_fetch("tags", settings.TAGS_SHEET_URL, _map_tag, session)
+async def fetch_tags(session=None, force: bool = False) -> list[dict]:
+    return await _get_cached_or_fetch("tags", settings.TAGS_SHEET_URL, _map_tag, session, force=force)
 
-async def fetch_youtube_channels(session=None) -> list[dict]:
-    return await _get_cached_or_fetch("youtube", settings.YOUTUBE_SHEET_URL, _map_youtube, session)
+async def fetch_youtube_channels(session=None, force: bool = False) -> list[dict]:
+    return await _get_cached_or_fetch("youtube", settings.YOUTUBE_SHEET_URL, _map_youtube, session, force=force)
 
-async def fetch_tiktok_profiles(session=None) -> list[dict]:
-    return await _get_cached_or_fetch("tiktok", settings.TIKTOK_SHEET_URL, _map_tiktok, session)
+async def fetch_tiktok_profiles(session=None, force: bool = False) -> list[dict]:
+    return await _get_cached_or_fetch("tiktok", settings.TIKTOK_SHEET_URL, _map_tiktok, session, force=force)
 
-async def preload_reference_data(session: aiohttp.ClientSession | None = None):
+async def preload_reference_data(session: aiohttp.ClientSession | None = None, force: bool = False):
     await asyncio.gather(
-        fetch_accounts(session),
-        fetch_tags(session),
-        fetch_youtube_channels(session),
-        fetch_tiktok_profiles(session)
+        fetch_accounts(session, force=force),
+        fetch_tags(session, force=force),
+        fetch_youtube_channels(session, force=force),
+        fetch_tiktok_profiles(session, force=force)
     )
