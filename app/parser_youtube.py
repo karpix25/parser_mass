@@ -61,7 +61,16 @@ async def fetch_shorts_simple(session, channel_id: str, amount: int = 20):
     try:
         data = await _get_json(session, url, params)
         logger.debug("📦 Shorts response example: %s", data[:1] if isinstance(data, list) else data)
-        return data
+        
+        if isinstance(data, dict):
+            for key in ("data", "videos", "shorts", "items", "results"):
+                if key in data and isinstance(data[key], list):
+                    return data[key]
+            lists = [v for k, v in data.items() if isinstance(v, list)]
+            if lists:
+                return lists[0]
+        
+        return data if isinstance(data, list) else [data] if data else []
     except Exception as e:
         logger.warning("⚠️ Fetch shorts failed after retries: %s", e)
         return []
@@ -73,7 +82,19 @@ async def fetch_video_details(session, video_url: str):
     """
     params = {"url": video_url}
     try:
-        return await _get_json(session, f"{SC_BASE}/video", params)
+        data = await _get_json(session, f"{SC_BASE}/video", params)
+        
+        if isinstance(data, dict):
+            if "title" in data or "viewCountInt" in data:
+                return data
+            for key in ("data", "video", "item", "details"):
+                if key in data and isinstance(data[key], dict):
+                    return data[key]
+            dicts = [v for k, v in data.items() if isinstance(v, dict)]
+            if dicts:
+                return dicts[0]
+        
+        return data
     except Exception as e:
         logger.warning("⚠️ Fetch video details failed after retries: %s", e)
         return None
