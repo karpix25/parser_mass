@@ -177,43 +177,43 @@ async def process_youtube_channel(
         logger.warning("🚫 [%s] %s: no shorts, skip channel", log_prefix, channel_id)
         return stats
 
-    async with conn.transaction():
-        for idx, s in enumerate(shorts, start=1):
-            v_url = s.get("url")
-            v_id = s.get("id")
-            if not v_url:
-                stats["skipped"] += 1
-                logger.debug("↩️ [%s] %s: #%d skipped (no url)", log_prefix, channel_id, idx)
+    for idx, s in enumerate(shorts, start=1):
+        v_url = s.get("url")
+        v_id = s.get("id")
+        if not v_url:
+            stats["skipped"] += 1
+            logger.debug("↩️ [%s] %s: #%d skipped (no url)", log_prefix, channel_id, idx)
+            continue
+
+        try:
+            details = await fetch_video_details(session, v_url)
+            if not details:
+                stats["failed"] += 1
+                logger.warning("❌ [%s] %s: #%d details None (%s)", log_prefix, channel_id, idx, v_url)
+                await asyncio.sleep(sleep_between)
                 continue
 
-            try:
-                details = await fetch_video_details(session, v_url)
-                if not details:
-                    stats["failed"] += 1
-                    logger.warning("❌ [%s] %s: #%d details None (%s)", log_prefix, channel_id, idx, v_url)
-                    await asyncio.sleep(sleep_between)
-                    continue
+            stats["details_ok"] += 1
 
-                stats["details_ok"] += 1
+            title = details.get("title") or ""
+            descr = details.get("description") or ""
+            text = f"{title}\n{descr}".strip()
 
-                title = details.get("title") or ""
-                descr = details.get("description") or ""
-                text = f"{title}\n{descr}".strip()
+            client_tag, company, product, matched_list = match_tags(text, tags)
 
-                client_tag, company, product, matched_list = match_tags(text, tags)
+            publish_text = details.get("publishDateText") or ""
+            iso_year, week, dt = _iso_from_text(publish_text)
+            publish_date = dt.date() if dt else datetime.utcnow().date()
 
-                publish_text = details.get("publishDateText") or ""
-                iso_year, week, dt = _iso_from_text(publish_text)
-                publish_date = dt.date() if dt else datetime.utcnow().date()
+            channel = details.get("channel") or {}
+            account = channel.get("handle") or channel.get("title") or channel.get("id") or channel_id
 
-                channel = details.get("channel") or {}
-                account = channel.get("handle") or channel.get("title") or channel.get("id") or channel_id
+            views = int(details.get("viewCountInt") or 0)
+            likes = int(details.get("likeCountInt") or 0)
+            comments = int(details.get("commentCountInt") or 0)
 
-                views = int(details.get("viewCountInt") or 0)
-                likes = int(details.get("likeCountInt") or 0)
-                comments = int(details.get("commentCountInt") or 0)
-
-                # upsert
+            # upsert inside an individual transaction
+            async with conn.transaction():
                 res = await conn.execute(
                     f"""
                     INSERT INTO {PG_SCHEMA}.video_stats
@@ -249,35 +249,35 @@ async def process_youtube_channel(
                     product,
                 )
 
-                # asyncpg возвращает статус типа "INSERT 0 1" или "UPDATE 1"
-                if res.startswith("INSERT"):
-                    stats["inserted"] += 1
-                    action = "INS"
-                elif res.startswith("UPDATE"):
-                    stats["updated"] += 1
-                    action = "UPD"
-                else:
-                    stats["skipped"] += 1
-                    action = "SKIP"
+            # asyncpg возвращает статус типа "INSERT 0 1" или "UPDATE 1"
+            if res.startswith("INSERT"):
+                stats["inserted"] += 1
+                action = "INS"
+            elif res.startswith("UPDATE"):
+                stats["updated"] += 1
+                action = "UPD"
+            else:
+                stats["skipped"] += 1
+                action = "SKIP"
 
-                logger.debug(
-                    "✅ [%s] %s: #%d %s id=%s views=%s likes=%s matched=%s",
-                    log_prefix, channel_id, idx, action, (v_id or details.get("id")), views, likes, matched_list
-                )
+            logger.debug(
+                "✅ [%s] %s: #%d %s id=%s views=%s likes=%s matched=%s",
+                log_prefix, channel_id, idx, action, (v_id or details.get("id")), views, likes, matched_list
+            )
 
-            except Exception as e:
-                stats["failed"] += 1
-                logger.exception("💥 [%s] %s: #%d fatal on %s | err=%s", log_prefix, channel_id, idx, v_url, e)
+        except Exception as e:
+            stats["failed"] += 1
+            logger.exception("💥 [%s] %s: #%d fatal on %s | err=%s", log_prefix, channel_id, idx, v_url, e)
 
-            await asyncio.sleep(sleep_between)
+        await asyncio.sleep(sleep_between)
 
-            # периодический прогресс
-            if idx % 25 == 0 or idx == stats["total_shorts"]:
-                logger.info(
-                    "📊 [%s] %s: progress %d/%d | ins=%d upd=%d skip=%d fail=%d",
-                    log_prefix, channel_id, idx, stats["total_shorts"],
-                    stats["inserted"], stats["updated"], stats["skipped"], stats["failed"]
-                )
+        # периодический прогресс
+        if idx % 25 == 0 or idx == stats["total_shorts"]:
+            logger.info(
+                "📊 [%s] %s: progress %d/%d | ins=%d upd=%d skip=%d fail=%d",
+                log_prefix, channel_id, idx, stats["total_shorts"],
+                stats["inserted"], stats["updated"], stats["skipped"], stats["failed"]
+            )
 
     logger.info(
         "🏁 [%s] %s: done | total=%d details_ok=%d ins=%d upd=%d skip=%d fail=%d",
