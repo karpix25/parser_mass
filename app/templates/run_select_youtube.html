@@ -11,18 +11,18 @@
       <table class="table">
         <thead>
           <tr>
-            <th></th>
+            <th><input type="checkbox" id="selectAll" title="Выбрать все"></th>
             <th>channel_id</th>
             <th>Видео к обработке</th>
           </tr>
         </thead>
         <tbody>
           {% for ch in channels %}
-            <tr>
-              <td><input type="checkbox" name="channels" value="{{ ch.channel_id }}"></td>
-              <td>{{ ch.channel_id }}</td>
-              <td>{{ ch.amount }}</td>
-            </tr>
+          <tr>
+            <td><input type="checkbox" name="channels" value="{{ ch.channel_id }}"></td>
+            <td>{{ ch.channel_id }}</td>
+            <td>{{ ch.amount }}</td>
+          </tr>
           {% endfor %}
         </tbody>
       </table>
@@ -30,4 +30,11 @@
     <button class="btn btn--primary" type="submit">🚀 Запустить выбранные каналы</button>
   </form>
 </div>
+</div>
+<script>
+  document.getElementById('selectAll').addEventListener('change', function () {
+    const checkboxes = document.querySelectorAll('input[name="channels"]');
+    checkboxes.forEach(cb => cb.checked = this.checked);
+  });
+</script>
 {% endblock %}

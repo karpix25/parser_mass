@@ -7,18 +7,31 @@
 <div class="card">
   <div class="card__title">Доступные аккаунты</div>
   <form method="post" action="/run-selected" class="stack">
+    <div style="margin-bottom: 1rem;">
+      <label class="checkbox-item">
+        <input type="checkbox" id="selectAll">
+        <strong>Выбрать все</strong>
+      </label>
+    </div>
     <div class="checkbox-grid checkbox-grid--columns scroll-area">
       {% for a in accounts %}
-        <label class="checkbox-item">
-          <input type="checkbox" name="accounts" value="{{ a.username }}">
-          <span>
-            <strong>{{ a.username }}</strong><br/>
-            <span class="muted">Видео к обработке: {{ a.amount }}</span>
-          </span>
-        </label>
+      <label class="checkbox-item">
+        <input type="checkbox" name="accounts" value="{{ a.username }}">
+        <span>
+          <strong>{{ a.username }}</strong><br />
+          <span class="muted">Видео к обработке: {{ a.amount }}</span>
+        </span>
+      </label>
       {% endfor %}
     </div>
     <button class="btn btn--primary" type="submit">🚀 Запустить выбранные аккаунты</button>
   </form>
 </div>
+</div>
+<script>
+  document.getElementById('selectAll').addEventListener('change', function () {
+    const checkboxes = document.querySelectorAll('input[name="accounts"]');
+    checkboxes.forEach(cb => cb.checked = this.checked);
+  });
+</script>
 {% endblock %}
