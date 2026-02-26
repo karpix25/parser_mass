@@ -215,10 +215,10 @@ async def run_selected_tiktok(request: Request):
     return RedirectResponse("/runs", status_code=303)
 
 
-@router.post("/enrich-sheets")
-async def enrich_sheets_endpoint():
-    # [NEW] Endpoint to trigger enrichment manually
-    from app.services.enricher import enrich_all_sheets
-    asyncio.create_task(enrich_all_sheets())
-    return RedirectResponse("/?enriched=1", status_code=303)
+# @router.post("/enrich-sheets")
+# async def enrich_sheets_endpoint():
+#     # [NEW] Endpoint to trigger enrichment manually
+#     from app.services.enricher import enrich_all_sheets
+#     asyncio.create_task(enrich_all_sheets())
+#     return RedirectResponse("/?enriched=1", status_code=303)
 

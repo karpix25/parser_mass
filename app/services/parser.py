@@ -271,13 +271,6 @@ async def parse_all(only_accounts: list[str] | None = None):
     target_accounts = {a.casefold() for a in only_accounts} if only_accounts else None
 
     async with ClientSession() as session:
-        # [NEW] Enrich sheets with actual data (IDs, video counts)
-        try:
-            from app.services.enricher import enrich_all_sheets
-            await enrich_all_sheets()
-        except Exception as e:
-            logger.error(f"⚠️ Enrichment failed: {e}")
-
         await preload_reference_data(session, force=True)
         tags = await fetch_tags(session, force=True)
 

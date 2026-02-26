@@ -31,27 +31,64 @@ async def _fetch_json(session: aiohttp.ClientSession, url: str, params: dict) ->
             )
         return await resp.json()
 
-async def fetch_tiktok_videos(session: aiohttp.ClientSession, user_id: str, amount: int = 20):
+async def fetch_tiktok_videos(session: aiohttp.ClientSession, user_id: str, amount: int = 20, handle: str | None = None):
     """
-    Получает список видео TikTok по user_id.
-    Возвращает (data, is_not_found)
+    Получает список видео TikTok по user_id или handle с поддержкой пагинации (API v3).
+    Возвращает (all_videos, is_not_found)
     """
-    params = {"user_id": user_id, "amount": str(amount)}
-    url = f"{SC_BASE}/profile-videos"
-
-    try:
-        data = await _fetch_json(session, url, params)
-        logger.debug("🎞️ TikTok %s: получен список (%s видео)", user_id, len(data))
-        return data, False
-    except aiohttp.ClientResponseError as e:
-        if e.status == 404:
-            logger.warning("🚫 TikTok %s: профиль не найден (404)", user_id)
-            return [], True
-        logger.warning("⚠️ TikTok %s: ошибка API (%s): %s", user_id, e.status, e)
-        return [], False
-    except Exception as e:
-        logger.warning("⚠️ TikTok %s: ошибка после ретраев: %s", user_id, e)
-        return [], False
+    all_videos = []
+    cursor = "0"
+    is_not_found = False
+    
+    # URL из скриншота: https://api.scrapecreators.com/v3/tiktok/profile/videos
+    # ВАЖНО: именно через слэш '/', а не через тире '-'
+    url = "https://api.scrapecreators.com/v3/tiktok/profile/videos"
+    
+    while len(all_videos) < amount:
+        params = {
+            "max_cursor": cursor,
+            "sort_by": "0", # 0 = most recent
+        }
+        if handle:
+            params["handle"] = handle
+        else:
+            params["user_id"] = user_id
+        
+        try:
+            data = await _fetch_json(session, url, params)
+            
+            # В v3 ответ содержит объект с видео и курсором
+            page_videos = data.get("videos") or []
+            if not page_videos and isinstance(data, list):
+                page_videos = data
+            
+            if not page_videos:
+                break
+                
+            all_videos.extend(page_videos)
+            
+            # Получаем следующий курсор
+            cursor = data.get("max_cursor")
+            if not cursor or cursor == "0" or cursor == 0:
+                break
+                
+            logger.debug("🎞️ TikTok %s: получена страница (%d видео, след. курсор: %s)", (handle or user_id), len(page_videos), cursor)
+            
+            # Небольшая задержка между страницами
+            await asyncio.sleep(0.5)
+            
+        except aiohttp.ClientResponseError as e:
+            if e.status == 404:
+                logger.warning("🚫 TikTok %s: профиль не найден (404) по ссылке %s", (handle or user_id), url)
+                is_not_found = True
+                break
+            logger.warning("⚠️ TikTok %s: ошибка API (%s): %s", (handle or user_id), e.status, e)
+            break
+        except Exception as e:
+            logger.warning("⚠️ TikTok %s: ошибка при пагинации: %s", (handle or user_id), e)
+            break
+            
+    return all_videos[:amount], is_not_found
 
 
 async def process_tiktok_profile(
@@ -76,7 +113,7 @@ async def process_tiktok_profile(
     }
     label_name = sheet_username or user_id
     logger.info("🎯 TikTok %s: старт обработки | лимит=%s", label_name, amount)
-    videos, is_not_found = await fetch_tiktok_videos(session, user_id, amount)
+    videos, is_not_found = await fetch_tiktok_videos(session, user_id, amount, handle=sheet_username)
     results["total_videos"] = len(videos)
     results["is_not_found"] = is_not_found
     if is_not_found:

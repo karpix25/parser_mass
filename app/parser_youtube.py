@@ -45,53 +45,72 @@ async def _get_json(session: aiohttp.ClientSession, url: str, params: dict | Non
 
 async def fetch_shorts_simple(session, channel_id: str, amount: int = 20):
     """
-    Получает список YouTube Shorts с канала по handle или channelId.
-    Возвращает массив словарей с {id, url, title, thumbnail, viewCountInt}
+    Получает список YouTube Shorts с канала по handle или channelId с поддержкой пагинации.
+    Возвращает (all_shorts, is_not_found)
     """
-    params = {"amount": str(amount)}
-
-    # Определяем — это handle или channelId
-    if channel_id.startswith("UC"):
-        params["channelId"] = channel_id
-    else:
-        params["handle"] = channel_id
-
-    url = f"{SC_BASE}/channel/shorts/simple"
-
-    try:
-        data = await _get_json(session, url, params)
-        logger.debug("📦 Shorts response example: %s", data[:1] if isinstance(data, list) else data)
-        
-        videos = []
-        if isinstance(data, dict):
-            for key in ("data", "videos", "shorts", "items", "results"):
-                if key in data and isinstance(data[key], list):
-                    videos = data[key]
-                    break
+    all_shorts = []
+    continuation_token = None
+    is_not_found = False
+    
+    # URL из скриншота: https://api.scrapecreators.com/v1/youtube/channel/shorts
+    url = f"{SC_BASE}/channel/shorts"
+    
+    while len(all_shorts) < amount:
+        params = {
+            "continuationToken": continuation_token if continuation_token else ""
+        }
+        if channel_id.startswith("UC"):
+            params["channelId"] = channel_id
+        else:
+            params["handle"] = channel_id
             
-            if not videos:
-                # If the API returns shorts as numerical keys directly in the root dict
-                numerical_items = [v for k, v in data.items() if str(k).isdigit() and isinstance(v, dict)]
-                if numerical_items:
-                    videos = numerical_items
-                else:
-                    lists = [v for k, v in data.items() if isinstance(v, list)]
-                    if lists:
-                        videos = lists[0]
-        
-        if not videos and isinstance(data, list):
-            videos = data
+        try:
+            data = await _get_json(session, url, params)
             
-        return videos, False
-    except aiohttp.ClientResponseError as e:
-        if e.status == 404:
-            logger.warning("🚫 YT %s: канал не найден (404)", channel_id)
-            return [], True
-        logger.warning("⚠️ YT %s: ошибка API (%s): %s", channel_id, e.status, e)
-        return [], False
-    except Exception as e:
-        logger.warning("⚠️ YT %s: ошибка после ретраев: %s", channel_id, e)
-        return [], False
+            page_items = []
+            if isinstance(data, dict):
+                # Пробуем разные ключи, которые может вернуть API
+                page_items = data.get("items") or data.get("shorts") or data.get("videos") or []
+                continuation_token = data.get("continuationToken")
+            elif isinstance(data, list):
+                page_items = data
+                continuation_token = None
+            
+            if not page_items:
+                break
+                
+            # Гарантируем наличие id и url для каждого элемента
+            for item in page_items:
+                if isinstance(item, dict):
+                    v_id = item.get("id") or item.get("videoId")
+                    if v_id:
+                        if not item.get("id"): item["id"] = v_id
+                        if not item.get("url"): item["url"] = f"https://www.youtube.com/shorts/{v_id}"
+            
+            all_shorts.extend(page_items)
+            
+            # Если нет токена для следующей страницы — выходим
+            if not continuation_token:
+                break
+                
+            logger.debug("🎬 YT %s: получена страница (%d shorts, след. токен: %s)", channel_id, len(page_items), continuation_token)
+            
+            # Небольшая пауза
+            await asyncio.sleep(0.5)
+            
+        except aiohttp.ClientResponseError as e:
+            if e.status == 404:
+                logger.warning("🚫 YT %s: канал не найден (404)", channel_id)
+                is_not_found = True
+                break
+            logger.warning("⚠️ YT %s: ошибка API (%s): %s", channel_id, e.status, e)
+            break
+        except Exception as e:
+            logger.warning("⚠️ YT %s: ошибка при пагинации: %s", channel_id, e)
+            break
+            
+    # Возвращаем накопленные данные (обрезанные до лимита)
+    return all_shorts[:amount], is_not_found
 
 
 async def fetch_video_details(session, video_url: str):

@@ -117,62 +117,60 @@ async def enrich_youtube_sheet(gc: gspread.Client, session: aiohttp.ClientSessio
             
             data = await _fetch_sc_data(session, SC_YT_BASE, params)
             
+            row_cells = []
+            col_status_idx = 7 # Column G
+
             if data:
-                # Если вернулся 404 - аккаунт не найден (удален)
                 if data.get("error") == "not_found":
-                    if col_subs_idx != -1:
-                        cells_to_update.append(gspread.Cell(real_row_idx, col_subs_idx, "УДАЛЕН"))
+                    # Записываем причину в колонку G
+                    row_cells.append(gspread.Cell(real_row_idx, col_status_idx, "удален"))
                     
-                    # Обновляем дату (чтобы понимать когда проверили)
+                    # Обновляем дату
+                    if col_date_idx != -1:
+                        today_str = datetime.utcnow().strftime("%Y-%m-%d")
+                        row_cells.append(gspread.Cell(real_row_idx, col_date_idx, today_str))
+                else:
+                    # Успех
+                    new_id = data.get("channelId")
+                    subs_count = data.get("subscriberCount")
+                    video_count_text = data.get("videoCountText")
+                    video_count = None
+                    
+                    if video_count_text:
+                        import re
+                        match = re.search(r'([\d,]+)', video_count_text)
+                        if match:
+                            video_count = int(match.group(1).replace(',', ''))
+                    
+                    if not video_count:
+                        video_count = data.get("videoCount") or data.get("videoCountInt")
+                    if not subs_count:
+                        subs_count = data.get("subscriberCountInt")
+
+                    # Очищаем колонку G (ошибку) при успехе
+                    row_cells.append(gspread.Cell(real_row_idx, col_status_idx, ""))
+
+                    # Обновляем ID
+                    if new_id and col_id_write_idx != -1:
+                        row_cells.append(gspread.Cell(real_row_idx, col_id_write_idx, new_id))
+                    
+                    # Обновляем количество видео
+                    if video_count is not None and col_video_idx != -1:
+                         row_cells.append(gspread.Cell(real_row_idx, col_video_idx, str(video_count)))
+                    
+                    # Обновляем подписки
+                    if subs_count is not None and col_subs_idx != -1:
+                         row_cells.append(gspread.Cell(real_row_idx, col_subs_idx, str(subs_count)))
+                    
+                    # Обновляем дату
                     if col_date_idx != -1:
                          today_str = datetime.utcnow().strftime("%Y-%m-%d")
-                         cells_to_update.append(gspread.Cell(real_row_idx, col_date_idx, today_str))
-                    continue
+                         row_cells.append(gspread.Cell(real_row_idx, col_date_idx, today_str))
+            else:
+                row_cells.append(gspread.Cell(real_row_idx, col_status_idx, "ошибка API"))
 
-                # Парсим ответ
-                # SC v1/youtube/channel response fields
-                # documentation: { "channelId": "...", "subscriberCount": 2750000, "videoCountText": "9,221 videos" }
-                
-                new_id = data.get("channelId")
-                
-                # Ищем количество видео и подписок
-                subs_count = data.get("subscriberCount")
-                video_count_text = data.get("videoCountText")
-                video_count = None
-                
-                if video_count_text:
-                    # '9,221 videos' -> 9221
-                    import re
-                    match = re.search(r'([\d,]+)', video_count_text)
-                    if match:
-                        video_count = int(match.group(1).replace(',', ''))
-                
-                # fallback
-                if not video_count:
-                    video_count = data.get("videoCount") or data.get("videoCountInt")
-                if not subs_count:
-                    subs_count = data.get("subscriberCountInt")
-
-                # Обновляем ID если он был не ID (например, handle)
-                # Пользователь просил "айди профиля и кол-во видео"
-                # Значит в колонку ID лучше писать строгий ID (UC...)
-                if new_id and new_id != current_id_val:
-                    # Но если мы перезапишем Handle на ID, удобно ли это пользователю?
-                    # Пользователь сказал "заносить их в таблицу". Думаю, ID надежнее.
-                    cells_to_update.append(gspread.Cell(real_row_idx, col_id_write_idx, new_id))
-                
-                # Обновляем количество видео
-                if video_count is not None and col_video_idx != -1:
-                     cells_to_update.append(gspread.Cell(real_row_idx, col_video_idx, str(video_count)))
-                
-                # Обновляем подписки
-                if subs_count is not None and col_subs_idx != -1:
-                     cells_to_update.append(gspread.Cell(real_row_idx, col_subs_idx, str(subs_count)))
-                
-                # Обновляем дату
-                if col_date_idx != -1:
-                     today_str = datetime.utcnow().strftime("%Y-%m-%d")
-                     cells_to_update.append(gspread.Cell(real_row_idx, col_date_idx, today_str))
+            if row_cells:
+                cells_to_update.extend(row_cells)
             
             await asyncio.sleep(0.1) # Throttle slightly
 
@@ -236,49 +234,60 @@ async def enrich_tiktok_sheet(gc: gspread.Client, session: aiohttp.ClientSession
             params = {"handle": clean_user}
             data = await _fetch_sc_data(session, SC_TT_BASE, params)
             
+            row_cells = []
+            col_status_idx = 7 # Column G
+
             if data:
-                # Если вернулся 404 - аккаунт не найден (удален)
                 if data.get("error") == "not_found":
-                    if col_subs_idx != -1:
-                        cells_to_update.append(gspread.Cell(real_row_idx, col_subs_idx, "УДАЛЕН"))
+                    # Записываем причину в колонку G
+                    row_cells.append(gspread.Cell(real_row_idx, col_status_idx, "удален"))
                     
                     # Обновляем Дату
                     if col_date_idx != -1:
                         today_str = datetime.utcnow().strftime("%Y-%m-%d")
-                        cells_to_update.append(gspread.Cell(real_row_idx, col_date_idx, today_str))
-                    continue
-
-                # SC v1/tiktok/profile response
-                # user: { id: ... }, stats: { videoCount: ... }
-                user_data = data.get("user") or {}
-                stats = data.get("stats") or {}
-                
-                uid = user_data.get("id")
-                v_count = stats.get("videoCount")
-                s_count = stats.get("followerCount")
-                
-                # Обновляем ID
-                if uid and col_id_write_idx != -1:
-                    cells_to_update.append(gspread.Cell(real_row_idx, col_id_write_idx, str(uid)))
-                
-                # Обновляем Video Count
-                if v_count is not None and col_video_idx != -1:
-                    cells_to_update.append(gspread.Cell(real_row_idx, col_video_idx, str(v_count)))
-                
-                # Обновляем Подписки
-                if s_count is not None and col_subs_idx != -1:
-                    cells_to_update.append(gspread.Cell(real_row_idx, col_subs_idx, str(s_count)))
+                        row_cells.append(gspread.Cell(real_row_idx, col_date_idx, today_str))
+                else:
+                    # Успех
+                    user_data = data.get("user") or {}
+                    stats = data.get("stats") or {}
                     
-                # Обновляем Дату
-                if col_date_idx != -1:
-                    today_str = datetime.utcnow().strftime("%Y-%m-%d")
-                    cells_to_update.append(gspread.Cell(real_row_idx, col_date_idx, today_str))
+                    uid = user_data.get("id")
+                    v_count = stats.get("videoCount")
+                    s_count = stats.get("followerCount")
+
+                    # Очищаем колонку G
+                    row_cells.append(gspread.Cell(real_row_idx, col_status_idx, ""))
+                    
+                    # Обновляем ID
+                    if uid and col_id_write_idx != -1:
+                        row_cells.append(gspread.Cell(real_row_idx, col_id_write_idx, str(uid)))
+                    
+                    # Обновляем Video Count
+                    if v_count is not None and col_video_idx != -1:
+                        row_cells.append(gspread.Cell(real_row_idx, col_video_idx, str(v_count)))
+                    
+                    # Обновляем Подписки
+                    if s_count is not None and col_subs_idx != -1:
+                        row_cells.append(gspread.Cell(real_row_idx, col_subs_idx, str(s_count)))
+                        
+                    # Обновляем Дату
+                    if col_date_idx != -1:
+                        today_str = datetime.utcnow().strftime("%Y-%m-%d")
+                        row_cells.append(gspread.Cell(real_row_idx, col_date_idx, today_str))
+            else:
+                # Ошибка API
+                row_cells.append(gspread.Cell(real_row_idx, col_status_idx, "ошибка API"))
+
+            if row_cells:
+                cells_to_update.extend(row_cells)
             
             await asyncio.sleep(0.1)
 
         if cells_to_update:
             ws.update_cells(cells_to_update)
             logger.info(f"✅ TikTok Sheet updated: {len(cells_to_update)} cells changed.")
+        else:
+            logger.info("TikTok Sheet: No updates needed.")
             
     except Exception as e:
         logger.error(f"Error enriching TikTok sheet: {e}")
