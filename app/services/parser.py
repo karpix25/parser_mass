@@ -233,6 +233,13 @@ async def _process_tiktok_list(session, pool, tags, only_accounts: set[str] | No
                     {"user_id": profile.get("user_id", ""), "reason": reason}
                 )
                 continue
+            
+            if stats.get("is_not_found"):
+                logger.warning(f"🚩 TikTok {profile['user_id']} is 404. Marking in Google Sheet...")
+                from app.services.enricher import mark_tiktok_profile_deleted
+                asyncio.create_task(mark_tiktok_profile_deleted(profile["user_id"]))
+                failed_list.append({"user_id": profile["user_id"], "reason": "404 Not Found (deleted)"})
+                continue
                 
             inserted = stats.get("inserted", 0)
             new_videos += inserted

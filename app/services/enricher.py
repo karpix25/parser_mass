@@ -284,6 +284,64 @@ async def enrich_tiktok_sheet(gc: gspread.Client, session: aiohttp.ClientSession
         logger.error(f"Error enriching TikTok sheet: {e}")
 
 
+async def mark_tiktok_profile_deleted(user_id: str):
+    """
+    Finds the row for user_id in the TikTok sheet and marks column G as 'удален'.
+    """
+    target_url = settings.TIKTOK_OUTPUT_SHEET_URL or settings.TIKTOK_SHEET_URL
+    if not target_url:
+        return
+
+    try:
+        from gspread.utils import extract_id_from_url
+        loop = asyncio.get_event_loop()
+        gc = await loop.run_in_executor(None, _get_gclient)
+        if not gc:
+            return
+            
+        sh = gc.open_by_key(extract_id_from_url(target_url))
+        import re
+        match = re.search(r'(?:gid=)(\d+)', target_url)
+        if match:
+            ws = sh.get_worksheet_by_id(int(match.group(1)))
+        else:
+            ws = sh.sheet1
+            
+        # Get all data to find the row
+        all_values = ws.get_all_values()
+        if not all_values:
+            return
+            
+        headers = all_values[0]
+        # TikTok ID column is usually found by name
+        col_id_idx = _find_col_idx(headers, ["id_профиля", "idпрофиля", "id_profile", "user_id", "user id", "id профиля"])
+        if col_id_idx == -1:
+            # Fallback to col B (index 2) as often seen in these sheets
+            col_id_idx = 2
+            
+        # Column G is index 7
+        col_status_idx = 7
+        
+        # Find the row
+        target_row_idx = -1
+        for i, row in enumerate(all_values[1:], start=2):
+            if len(row) >= col_id_idx:
+                val = str(row[col_id_idx - 1]).strip()
+                if val == str(user_id).strip():
+                    target_row_idx = i
+                    break
+        
+        if target_row_idx != -1:
+            # Update Column G
+            ws.update_cell(target_row_idx, col_status_idx, "удален")
+            logger.info(f"✅ Marked TikTok {user_id} as 'удален' in Google Sheet (row {target_row_idx}, col G)")
+        else:
+            logger.warning(f"⚠️ Could not find TikTok {user_id} in sheet to mark as deleted.")
+
+    except Exception as e:
+        logger.error(f"Error marking TikTok {user_id} as deleted: {e}")
+
+
 async def enrich_all_sheets():
     """Main entry point called by scheduler/parser."""
     logger.info("🚀 Starting Sheet Enrichment (updating IDs & amounts)...")

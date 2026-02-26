@@ -34,7 +34,7 @@ async def _fetch_json(session: aiohttp.ClientSession, url: str, params: dict) ->
 async def fetch_tiktok_videos(session: aiohttp.ClientSession, user_id: str, amount: int = 20):
     """
     Получает список видео TikTok по user_id.
-    Возвращает массив словарей с {id, url, title, thumbnail, stats}
+    Возвращает (data, is_not_found)
     """
     params = {"user_id": user_id, "amount": str(amount)}
     url = f"{SC_BASE}/profile-videos"
@@ -42,10 +42,16 @@ async def fetch_tiktok_videos(session: aiohttp.ClientSession, user_id: str, amou
     try:
         data = await _fetch_json(session, url, params)
         logger.debug("🎞️ TikTok %s: получен список (%s видео)", user_id, len(data))
-        return data
+        return data, False
+    except aiohttp.ClientResponseError as e:
+        if e.status == 404:
+            logger.warning("🚫 TikTok %s: профиль не найден (404)", user_id)
+            return [], True
+        logger.warning("⚠️ TikTok %s: ошибка API (%s): %s", user_id, e.status, e)
+        return [], False
     except Exception as e:
         logger.warning("⚠️ TikTok %s: ошибка после ретраев: %s", user_id, e)
-        return []
+        return [], False
 
 
 async def process_tiktok_profile(
@@ -70,9 +76,11 @@ async def process_tiktok_profile(
     }
     label_name = sheet_username or user_id
     logger.info("🎯 TikTok %s: старт обработки | лимит=%s", label_name, amount)
-    videos = []
-    videos = await fetch_tiktok_videos(session, user_id, amount)
+    videos, is_not_found = await fetch_tiktok_videos(session, user_id, amount)
     results["total_videos"] = len(videos)
+    results["is_not_found"] = is_not_found
+    if is_not_found:
+        return results
     if not videos:
         logger.warning("⚠️ TikTok %s: пустой ответ или превышен лимит после повторов", user_id)
         return results
