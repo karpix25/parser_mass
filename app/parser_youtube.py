@@ -62,24 +62,36 @@ async def fetch_shorts_simple(session, channel_id: str, amount: int = 20):
         data = await _get_json(session, url, params)
         logger.debug("📦 Shorts response example: %s", data[:1] if isinstance(data, list) else data)
         
+        videos = []
         if isinstance(data, dict):
             for key in ("data", "videos", "shorts", "items", "results"):
                 if key in data and isinstance(data[key], list):
-                    return data[key]
+                    videos = data[key]
+                    break
             
-            # If the API returns shorts as numerical keys directly in the root dict
-            numerical_items = [v for k, v in data.items() if str(k).isdigit() and isinstance(v, dict)]
-            if numerical_items:
-                return numerical_items
-
-            lists = [v for k, v in data.items() if isinstance(v, list)]
-            if lists:
-                return lists[0]
+            if not videos:
+                # If the API returns shorts as numerical keys directly in the root dict
+                numerical_items = [v for k, v in data.items() if str(k).isdigit() and isinstance(v, dict)]
+                if numerical_items:
+                    videos = numerical_items
+                else:
+                    lists = [v for k, v in data.items() if isinstance(v, list)]
+                    if lists:
+                        videos = lists[0]
         
-        return data if isinstance(data, list) else [data] if data else []
+        if not videos and isinstance(data, list):
+            videos = data
+            
+        return videos, False
+    except aiohttp.ClientResponseError as e:
+        if e.status == 404:
+            logger.warning("🚫 YT %s: канал не найден (404)", channel_id)
+            return [], True
+        logger.warning("⚠️ YT %s: ошибка API (%s): %s", channel_id, e.status, e)
+        return [], False
     except Exception as e:
-        logger.warning("⚠️ Fetch shorts failed after retries: %s", e)
-        return []
+        logger.warning("⚠️ YT %s: ошибка после ретраев: %s", channel_id, e)
+        return [], False
 
 
 async def fetch_video_details(session, video_url: str):
@@ -169,9 +181,13 @@ async def process_youtube_channel(
     }
 
     logger.info("🎯 [%s] Start channel %s | amount=%s", log_prefix, channel_id, amount)
-    shorts = await fetch_shorts_simple(session, channel_id, amount)
+    shorts, is_not_found = await fetch_shorts_simple(session, channel_id, amount)
     stats["total_shorts"] = len(shorts)
+    stats["is_not_found"] = is_not_found
     logger.info("🎬 [%s] %s: fetched %d shorts", log_prefix, channel_id, stats["total_shorts"])
+
+    if is_not_found:
+        return stats
 
     if not shorts:
         logger.warning("🚫 [%s] %s: no shorts, skip channel", log_prefix, channel_id)

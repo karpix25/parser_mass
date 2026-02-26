@@ -170,15 +170,22 @@ async def _process_youtube_list(session, pool, tags, only_accounts: set[str] | N
             
             inserted = stats.get("inserted", 0)
             updated = stats.get("updated", 0)
-            new_videos += inserted + updated
+            total_new_vids = inserted + updated
+            new_videos += total_new_vids
             
-            # GSheets export requirement: Profile ID, count, parsing date
-            today_str = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
-            sheet_rows.append([ch["channel_id"], new_videos, today_str])
+            if stats.get("is_not_found"):
+                logger.warning(f"🚩 YouTube {ch['channel_id']} is 404. Marking in Google Sheet...")
+                from app.services.enricher import mark_youtube_profile_deleted
+                asyncio.create_task(mark_youtube_profile_deleted(ch["channel_id"]))
+                failed_list.append({"channel_id": ch["channel_id"], "reason": "404 Not Found (deleted)"})
+            else:
+                # Update existing row instead of appending
+                from app.services.enricher import update_video_stats_in_sheet
+                asyncio.create_task(update_video_stats_in_sheet("youtube", ch["channel_id"], inserted + updated))
             
             logger.info(f"✅ YT {ch['channel_id']} done | {stats}")
 
-    return total_accounts, new_videos, failed_list, sheet_rows
+    return total_accounts, new_videos, failed_list, []
 
 
 async def _process_tiktok_list(session, pool, tags, only_accounts: set[str] | None):
@@ -234,22 +241,22 @@ async def _process_tiktok_list(session, pool, tags, only_accounts: set[str] | No
                 )
                 continue
             
+            inserted = stats.get("inserted", 0)
+            new_videos += inserted
+            
             if stats.get("is_not_found"):
                 logger.warning(f"🚩 TikTok {profile['user_id']} is 404. Marking in Google Sheet...")
                 from app.services.enricher import mark_tiktok_profile_deleted
                 asyncio.create_task(mark_tiktok_profile_deleted(profile["user_id"]))
                 failed_list.append({"user_id": profile["user_id"], "reason": "404 Not Found (deleted)"})
-                continue
-                
-            inserted = stats.get("inserted", 0)
-            new_videos += inserted
-            
-            today_str = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
-            sheet_rows.append([profile.get("username", profile.get("user_id")), inserted, today_str])
+            else:
+                # Update existing row instead of appending
+                from app.services.enricher import update_video_stats_in_sheet
+                asyncio.create_task(update_video_stats_in_sheet("tiktok", profile["user_id"], inserted))
             
             logger.info(f"✅ TikTok {profile['user_id']} done | {stats}")
 
-    return total_accounts, new_videos, failed_list, sheet_rows
+    return total_accounts, new_videos, failed_list, []
 
 
 # ---------------------------------------------------------------------------
@@ -375,10 +382,7 @@ async def parse_youtube_only(selected_channels: list[str]):
         await preload_reference_data(session, force=True)
         tags = await fetch_tags(session, force=True)
         
-        total_acc, total_new, failures, sheet_export = await _process_youtube_list(session, pool, tags, target)
-        
-        if sheet_export and settings.YOUTUBE_OUTPUT_SHEET_URL:
-            await append_to_sheet(sheet_export, settings.YOUTUBE_OUTPUT_SHEET_URL)
+        total_acc, total_new, failures, _ = await _process_youtube_list(session, pool, tags, target)
 
     finished = datetime.utcnow()
     errors = len(failures)
@@ -413,10 +417,7 @@ async def parse_tiktok_only(selected_profiles: list[str]):
         await preload_reference_data(session, force=True)
         tags = await fetch_tags(session, force=True)
         
-        total_acc, total_new, failures, sheet_export = await _process_tiktok_list(session, pool, tags, target)
-        
-        if sheet_export and settings.TIKTOK_OUTPUT_SHEET_URL:
-            await append_to_sheet(sheet_export, settings.TIKTOK_OUTPUT_SHEET_URL)
+        total_acc, total_new, failures, _ = await _process_tiktok_list(session, pool, tags, target)
 
     finished = datetime.utcnow()
     errors = len(failures)

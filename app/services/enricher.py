@@ -288,7 +288,24 @@ async def mark_tiktok_profile_deleted(user_id: str):
     """
     Finds the row for user_id in the TikTok sheet and marks column G as 'удален'.
     """
-    target_url = settings.TIKTOK_OUTPUT_SHEET_URL or settings.TIKTOK_SHEET_URL
+    await _mark_profile_deleted_generic(user_id, platform="tiktok")
+
+
+async def mark_youtube_profile_deleted(channel_id: str):
+    """
+    Finds the row for channel_id in the YouTube sheet and marks column G as 'удален'.
+    """
+    await _mark_profile_deleted_generic(channel_id, platform="youtube")
+
+
+async def _mark_profile_deleted_generic(profile_id: str, platform: str):
+    if platform == "tiktok":
+        target_url = settings.TIKTOK_OUTPUT_SHEET_URL or settings.TIKTOK_SHEET_URL
+        possible_id_headers = ["id_профиля", "idпрофиля", "id_profile", "user_id", "user id", "id профиля"]
+    else:
+        target_url = settings.YOUTUBE_OUTPUT_SHEET_URL or settings.YOUTUBE_SHEET_URL
+        possible_id_headers = ["id профиля", "id_профиля", "idпрофиля", "channel_id", "channel id"]
+
     if not target_url:
         return
 
@@ -307,39 +324,100 @@ async def mark_tiktok_profile_deleted(user_id: str):
         else:
             ws = sh.sheet1
             
-        # Get all data to find the row
         all_values = ws.get_all_values()
         if not all_values:
             return
             
         headers = all_values[0]
-        # TikTok ID column is usually found by name
-        col_id_idx = _find_col_idx(headers, ["id_профиля", "idпрофиля", "id_profile", "user_id", "user id", "id профиля"])
+        col_id_idx = _find_col_idx(headers, possible_id_headers)
         if col_id_idx == -1:
-            # Fallback to col B (index 2) as often seen in these sheets
-            col_id_idx = 2
+            col_id_idx = 4 if platform == "youtube" else 2 # common fallbacks
             
-        # Column G is index 7
-        col_status_idx = 7
+        col_status_idx = 7 # Column G
         
-        # Find the row
         target_row_idx = -1
         for i, row in enumerate(all_values[1:], start=2):
             if len(row) >= col_id_idx:
                 val = str(row[col_id_idx - 1]).strip()
-                if val == str(user_id).strip():
+                if val == str(profile_id).strip():
                     target_row_idx = i
                     break
         
         if target_row_idx != -1:
-            # Update Column G
             ws.update_cell(target_row_idx, col_status_idx, "удален")
-            logger.info(f"✅ Marked TikTok {user_id} as 'удален' in Google Sheet (row {target_row_idx}, col G)")
+            logger.info(f"✅ Marked {platform} {profile_id} as 'удален' in Google Sheet (row {target_row_idx})")
         else:
-            logger.warning(f"⚠️ Could not find TikTok {user_id} in sheet to mark as deleted.")
+            logger.warning(f"⚠️ Could not find {platform} {profile_id} in sheet to mark as deleted.")
 
     except Exception as e:
-        logger.error(f"Error marking TikTok {user_id} as deleted: {e}")
+        logger.error(f"Error marking {platform} {profile_id} as deleted: {e}")
+
+
+async def update_video_stats_in_sheet(platform: str, profile_id: str, video_count: int):
+    """
+    Finds the row for profile_id and updates Video count and Update Date.
+    """
+    if platform == "tiktok":
+        target_url = settings.TIKTOK_OUTPUT_SHEET_URL or settings.TIKTOK_SHEET_URL
+        possible_id_headers = ["id_профиля", "idпрофиля", "id_profile", "user_id", "user id", "id профиля"]
+    else:
+        target_url = settings.YOUTUBE_OUTPUT_SHEET_URL or settings.YOUTUBE_SHEET_URL
+        possible_id_headers = ["id профиля", "id_профиля", "idпрофиля", "channel_id", "channel id"]
+
+    if not target_url:
+        return
+
+    try:
+        from gspread.utils import extract_id_from_url
+        loop = asyncio.get_event_loop()
+        gc = await loop.run_in_executor(None, _get_gclient)
+        if not gc:
+            return
+            
+        sh = gc.open_by_key(extract_id_from_url(target_url))
+        import re
+        match = re.search(r'(?:gid=)(\d+)', target_url)
+        if match:
+            ws = sh.get_worksheet_by_id(int(match.group(1)))
+        else:
+            ws = sh.sheet1
+            
+        all_values = ws.get_all_values()
+        if not all_values:
+            return
+            
+        headers = all_values[0]
+        col_id_idx = _find_col_idx(headers, possible_id_headers)
+        if col_id_idx == -1:
+            col_id_idx = 4 if platform == "youtube" else 2
+            
+        col_video_idx = _find_col_idx(headers, ["видео", "video", "amount", "количество_видео", "количество видео"])
+        col_date_idx = _find_col_idx(headers, ["дата обновления", "дата_обновления", "date", "updated_at"])
+        
+        target_row_idx = -1
+        for i, row in enumerate(all_values[1:], start=2):
+            if len(row) >= col_id_idx:
+                val = str(row[col_id_idx - 1]).strip()
+                if val == str(profile_id).strip():
+                    target_row_idx = i
+                    break
+        
+        if target_row_idx != -1:
+            cells_to_update = []
+            if col_video_idx != -1:
+                cells_to_update.append(gspread.Cell(target_row_idx, col_video_idx, str(video_count)))
+            if col_date_idx != -1:
+                today_str = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
+                cells_to_update.append(gspread.Cell(target_row_idx, col_date_idx, today_str))
+            
+            if cells_to_update:
+                ws.update_cells(cells_to_update)
+                logger.info(f"✅ Updated {platform} stats for {profile_id} in Google Sheet (row {target_row_idx})")
+        else:
+            logger.warning(f"⚠️ Could not find {platform} {profile_id} in sheet to update stats.")
+
+    except Exception as e:
+        logger.error(f"Error updating stats for {platform} {profile_id}: {e}")
 
 
 async def enrich_all_sheets():
