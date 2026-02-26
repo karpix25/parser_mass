@@ -57,22 +57,26 @@ async def fetch_tiktok_videos(session: aiohttp.ClientSession, user_id: str | Non
         try:
             data = await _fetch_json(session, url, params)
             
-            # В v3 ответ содержит объект с видео и курсором
-            page_videos = data.get("videos") or []
+            # В v3 ответ содержит объект с видео (aweme_list) и курсором
+            page_videos = data.get("aweme_list") or data.get("videos") or []
             if not page_videos and isinstance(data, list):
                 page_videos = data
             
             if not page_videos:
+                logger.debug("🎞️ TikTok %s: страница пуста (или конец списка)", (handle or user_id))
                 break
                 
             all_videos.extend(page_videos)
             
-            # Получаем следующий курсор
+            # Проверяем, есть ли еще видео (has_more) и получаем следующий курсор
+            has_more = data.get("has_more", False)
             cursor = data.get("max_cursor")
-            if not cursor or cursor == "0" or cursor == 0:
+            
+            logger.debug("🎞️ TikTok %s: получена страница (%d видео, след. курсор: %s, has_more: %s)", 
+                         (handle or user_id), len(page_videos), cursor, has_more)
+
+            if not has_more or not cursor or cursor == "0" or cursor == 0:
                 break
-                
-            logger.debug("🎞️ TikTok %s: получена страница (%d видео, след. курсор: %s)", (handle or user_id), len(page_videos), cursor)
             
             # Небольшая задержка между страницами
             await asyncio.sleep(0.5)
