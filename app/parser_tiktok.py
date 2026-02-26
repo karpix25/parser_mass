@@ -47,7 +47,7 @@ async def fetch_tiktok_videos(session: aiohttp.ClientSession, user_id: str, amou
     while len(all_videos) < amount:
         params = {
             "max_cursor": cursor,
-            "sort_by": "0", # 0 = most recent
+            "sort_by": "latest", # v3 expects 'latest' or 'popular'
         }
         if handle:
             params["handle"] = handle
