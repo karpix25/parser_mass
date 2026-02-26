@@ -4,6 +4,9 @@ from datetime import datetime, timezone, timedelta
 from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from aiohttp import ClientSession
+import logging
+
+logger = logging.getLogger(__name__)
 
 from app.core.config import settings
 from app.core.templates import templates
@@ -202,10 +205,16 @@ async def select_tiktok_profiles(request: Request):
 
 @router.post("/run-selected-tiktok")
 async def run_selected_tiktok(request: Request):
+    logger.info("🚀 Hit /run-selected-tiktok route")
     form = await request.form()
     selected = form.getlist("profiles")
+    logger.info(f"📋 Selected profiles: {selected}")
     if not selected:
         return HTMLResponse("❌ Не выбраны профили", status_code=400)
+    asyncio.create_task(parse_tiktok_only(selected))
+    return RedirectResponse("/runs", status_code=303)
+
+
 @router.post("/enrich-sheets")
 async def enrich_sheets_endpoint():
     # [NEW] Endpoint to trigger enrichment manually
