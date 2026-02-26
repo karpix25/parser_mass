@@ -215,7 +215,7 @@ def _map_tiktok(row: dict[str, str]) -> dict | None:
         or row.get("id_profile") or row.get("profile_id") or row.get("user_id")
     )
     
-    if not user_id:
+    if not user_id and not username:
         return None
         
     amount_raw = (
@@ -227,10 +227,10 @@ def _map_tiktok(row: dict[str, str]) -> dict | None:
         amount = 0
         
     return {
-        "user_id": user_id,
+        "user_id": user_id or username,
         "amount": max(amount, 0),
         "username": username or user_id,
-        "_dedup_key": user_id.casefold()
+        "_dedup_key": (user_id or username).casefold()
     }
 
 # --- Public API ---

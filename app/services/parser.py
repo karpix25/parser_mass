@@ -148,16 +148,14 @@ async def _process_youtube_list(session, pool, tags, only_accounts: set[str] | N
 
     async with pool.acquire() as conn:
         for ch in yt_channels:
-            # Если в таблице пусто или 0 - берем 9999 (все)
-            amount = int(ch.get("amount") or 0)
-            if amount <= 0:
-                amount = 9999
+            # Игнорируем выбор количества из таблицы, всегда берем 10000 (всё через пагинацию)
+            amount = 10000
 
             stats, stats_error = await safe_run(
                 f"🎬 YT {ch['channel_id']}",
                 lambda ch=ch: process_youtube_channel(
                     session=session, conn=conn, PG_SCHEMA=settings.PG_SCHEMA,
-                    channel_id=ch["channel_id"], amount=int(ch["amount"]),
+                    channel_id=ch["channel_id"], amount=amount,
                     tags=tags, log_prefix="🎬 YT"
                 ),
                 retries=3,
@@ -215,25 +213,25 @@ async def _process_tiktok_list(session, pool, tags, only_accounts: set[str] | No
     new_videos = 0
     failed_list = []
     sheet_rows = []
-
     async with pool.acquire() as conn:
         for profile in tiktok_profiles:
-            # Если в таблице пусто или 0 - берем 9999 (все)
-            amount = int(profile.get("amount") or 0)
-            if amount <= 0:
-                amount = 9999
+            # Игнорируем выбор количества из таблицы, всегда берем 10000 (всё через пагинацию)
+            amount = 10000
+            
+            # Используем username как handle для поиска
+            handle = profile.get("username")
+            profile_label = handle or profile["user_id"]
 
-            profile_label = profile.get("username") or profile["user_id"]
             stats, stats_error = await safe_run(
                 f"🎬 TikTok {profile_label}",
-                lambda profile=profile: process_tiktok_profile(
+                lambda profile=profile, amount=amount, handle=handle: process_tiktok_profile(
                     session=session,
                     conn=conn,
                     PG_SCHEMA=settings.PG_SCHEMA,
                     user_id=profile["user_id"],
                     amount=amount,
                     tags=tags,
-                    sheet_username=profile.get("username"),
+                    sheet_username=handle,
                 ),
                 retries=3,
                 delay=20,

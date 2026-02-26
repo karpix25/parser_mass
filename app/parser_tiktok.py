@@ -31,7 +31,7 @@ async def _fetch_json(session: aiohttp.ClientSession, url: str, params: dict) ->
             )
         return await resp.json()
 
-async def fetch_tiktok_videos(session: aiohttp.ClientSession, user_id: str, amount: int = 20, handle: str | None = None):
+async def fetch_tiktok_videos(session: aiohttp.ClientSession, user_id: str | None = None, amount: int = 20, handle: str | None = None):
     """
     Получает список видео TikTok по user_id или handle с поддержкой пагинации (API v3).
     Возвращает (all_videos, is_not_found)
