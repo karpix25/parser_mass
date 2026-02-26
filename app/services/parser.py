@@ -148,8 +148,11 @@ async def _process_youtube_list(session, pool, tags, only_accounts: set[str] | N
 
     async with pool.acquire() as conn:
         for ch in yt_channels:
-            if int(ch.get("amount") or 0) <= 0:
-                continue
+            # Если в таблице пусто или 0 - берем 9999 (все)
+            amount = int(ch.get("amount") or 0)
+            if amount <= 0:
+                amount = 9999
+
             stats, stats_error = await safe_run(
                 f"🎬 YT {ch['channel_id']}",
                 lambda ch=ch: process_youtube_channel(
@@ -215,9 +218,11 @@ async def _process_tiktok_list(session, pool, tags, only_accounts: set[str] | No
 
     async with pool.acquire() as conn:
         for profile in tiktok_profiles:
+            # Если в таблице пусто или 0 - берем 9999 (все)
             amount = int(profile.get("amount") or 0)
             if amount <= 0:
-                continue
+                amount = 9999
+
             profile_label = profile.get("username") or profile["user_id"]
             stats, stats_error = await safe_run(
                 f"🎬 TikTok {profile_label}",
