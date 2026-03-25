@@ -20,18 +20,29 @@ from app.services.parser import parse_all, parse_youtube_only, parse_tiktok_only
 
 router = APIRouter()
 
-@router.get("/settings", response_class=HTMLResponse)
-async def settings_page(request: Request):
-    pool = await get_conn()
-    async with pool.acquire() as conn:
-        await conn.execute("""
+async def ensure_public_settings_table(conn) -> None:
+    await conn.execute("""
         CREATE TABLE IF NOT EXISTS public.settings (
             key TEXT PRIMARY KEY,
             value TEXT,
             created_at TIMESTAMPTZ DEFAULT NOW(),
             updated_at TIMESTAMPTZ DEFAULT NOW()
         );
-        """)
+    """)
+    await conn.execute("""
+        ALTER TABLE public.settings
+        ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT NOW();
+    """)
+    await conn.execute("""
+        ALTER TABLE public.settings
+        ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW();
+    """)
+
+@router.get("/settings", response_class=HTMLResponse)
+async def settings_page(request: Request):
+    pool = await get_conn()
+    async with pool.acquire() as conn:
+        await ensure_public_settings_table(conn)
         rows = await conn.fetch("SELECT key, value FROM public.settings ORDER BY key")
 
     saved_settings = {r["key"]: r["value"] for r in rows}
@@ -47,6 +58,7 @@ async def save_settings(request: Request):
     form = await request.form()
     pool = await get_conn()
     async with pool.acquire() as conn:
+        await ensure_public_settings_table(conn)
         for k, v in form.items():
             await conn.execute("""
                 INSERT INTO public.settings (key, value, updated_at)
@@ -221,4 +233,3 @@ async def run_selected_tiktok(request: Request):
 #     from app.services.enricher import enrich_all_sheets
 #     asyncio.create_task(enrich_all_sheets())
 #     return RedirectResponse("/?enriched=1", status_code=303)
-
