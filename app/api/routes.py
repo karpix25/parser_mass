@@ -49,8 +49,9 @@ async def settings_page(request: Request):
     now_moscow = datetime.now(timezone(timedelta(hours=3))).strftime("%Y-%m-%d %H:%M:%S")
 
     return templates.TemplateResponse(
+        request,
         "settings.html",
-        {"request": request, "settings": saved_settings, "now_moscow": now_moscow, "saved": request.query_params.get("saved")},
+        {"settings": saved_settings, "now_moscow": now_moscow, "saved": request.query_params.get("saved")},
     )
 
 @router.post("/settings", response_class=HTMLResponse)
@@ -80,7 +81,7 @@ async def save_settings(request: Request):
 
 @router.get("/", response_class=HTMLResponse)
 async def home(request: Request):
-    return templates.TemplateResponse("home.html", {"request": request})
+    return templates.TemplateResponse(request, "home.html")
 
 @router.get("/runs", response_class=HTMLResponse)
 async def runs(request: Request):
@@ -163,8 +164,9 @@ async def runs(request: Request):
         runs_data.append(item)
 
     return templates.TemplateResponse(
+        request,
         "runs.html",
-        {"request": request, "runs": runs_data, "accounts": acc_rows,
+        {"runs": runs_data, "accounts": acc_rows,
          "now_moscow": datetime.now(timezone(timedelta(hours=3))).strftime("%Y-%m-%d %H:%M:%S")},
     )
 
@@ -172,7 +174,7 @@ async def runs(request: Request):
 async def select_instagram(request: Request):
     async with ClientSession() as s:
         acc = await fetch_accounts(s)
-    return templates.TemplateResponse("run_select.html", {"request": request, "accounts": acc[:200]})
+    return templates.TemplateResponse(request, "run_select.html", {"accounts": acc[:200]})
 
 @router.post("/run-selected")
 async def run_selected(request: Request):
@@ -187,7 +189,7 @@ async def run_selected(request: Request):
 async def select_youtube_channels(request: Request):
     async with ClientSession() as s:
         channels = await fetch_youtube_channels(s)
-    return templates.TemplateResponse("run_select_youtube.html", {"request": request, "channels": channels[:200]})
+    return templates.TemplateResponse(request, "run_select_youtube.html", {"channels": channels[:200]})
 
 @router.post("/run-selected-youtube")
 async def run_selected_youtube(request: Request):
@@ -211,8 +213,9 @@ async def select_tiktok_profiles(request: Request):
     async with ClientSession() as s:
         profiles = await fetch_tiktok_profiles(s)
     return templates.TemplateResponse(
+        request,
         "run_select_tiktok.html",
-        {"request": request, "profiles": profiles[:200]}
+        {"profiles": profiles[:200]}
     )
 
 @router.post("/run-selected-tiktok")
