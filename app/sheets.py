@@ -182,28 +182,32 @@ def _map_tag(row: dict[str, str]) -> dict | None:
     }
 
 def _map_youtube(row: dict[str, str]) -> dict | None:
-    # YouTube sheet logic was a bit specific with indices in original code, 
-    # but DictReader with normalized keys should work if headers exist.
-    # Expected headers: 'видео', 'id профиля' (or variants)
-    
+    profile = _normalize_text(
+        row.get("профиль") or row.get("profile") or row.get("handle") or row.get("username")
+    )
+    if not profile:
+        return None
+
     channel_id = _normalize_text(
         row.get("id_профиля") or row.get("idпрофиля") or row.get("id_profile") or row.get("channel_id")
-    )
-    if not channel_id:
-        # Fallback for weird headers if needed, but let's rely on standard ones first.
-        # If the CSV has "id профиля" it becomes "id_профиля" via _normalize_key.
-        return None
+    ) or None
 
     amount_raw = row.get("видео") or row.get("video") or row.get("amount") or ""
     try:
         amount = int(_normalize_text(amount_raw, to_lower=True) or "0")
     except ValueError:
         amount = 0
+
+    subscribers = _normalize_text(
+        row.get("подписки") or row.get("subscribers") or row.get("followers")
+    ) or None
         
     return {
+        "profile": profile,
         "channel_id": channel_id,
         "amount": max(amount, 0),
-        "_dedup_key": channel_id.casefold()
+        "subscribers": subscribers,
+        "_dedup_key": profile.casefold()
     }
 
 def _map_tiktok(row: dict[str, str]) -> dict | None:

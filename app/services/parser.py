@@ -132,12 +132,12 @@ async def _process_youtube_list(session, pool, tags, only_accounts: set[str] | N
     Returns (count_accounts, count_new_videos, list_of_errors)
     """
     if only_accounts:
-        # If we are filtering by accounts, we assume the input list contains channel IDs
-        # But fetch_youtube_channels returns all from sheet.
-        # If only_accounts is passed, we might skip fetching all if we knew them, 
-        # but here we fetch all to get 'amount' config from sheet.
         all_channels = await fetch_youtube_channels(session)
-        yt_channels = [c for c in all_channels if c["channel_id"].casefold() in only_accounts]
+        yt_channels = [
+            c for c in all_channels
+            if c["profile"].casefold() in only_accounts
+            or (c.get("channel_id") or "").casefold() in only_accounts
+        ]
     else:
         yt_channels = await fetch_youtube_channels(session)
 
@@ -148,14 +148,48 @@ async def _process_youtube_list(session, pool, tags, only_accounts: set[str] | N
 
     async with pool.acquire() as conn:
         for ch in yt_channels:
+            profile = ch["profile"]
+            resolved_channel_id = ch.get("channel_id")
+
+            from app.services.enricher import fetch_youtube_profile_metadata, mark_youtube_profile_deleted, update_youtube_profile_row
+
+            metadata = await fetch_youtube_profile_metadata(
+                session,
+                profile=profile,
+                channel_id=resolved_channel_id,
+            )
+
+            if metadata and metadata.get("is_not_found"):
+                logger.warning("🚩 YouTube profile %s is 404. Marking in Google Sheet...", profile)
+                asyncio.create_task(mark_youtube_profile_deleted(profile))
+                failed_list.append({"profile": profile, "reason": "404 Not Found (deleted)"})
+                continue
+
+            if metadata:
+                resolved_channel_id = metadata.get("channel_id") or resolved_channel_id
+                asyncio.create_task(
+                    update_youtube_profile_row(
+                        profile,
+                        channel_id=resolved_channel_id,
+                        video_count=metadata.get("video_count"),
+                        subscriber_count=metadata.get("subscriber_count"),
+                    )
+                )
+
+            if not resolved_channel_id:
+                reason = "Unable to resolve channel_id from profile"
+                logger.error("🚫 YT %s failed: %s", profile, reason)
+                failed_list.append({"profile": profile, "reason": reason})
+                continue
+
             # Игнорируем выбор количества из таблицы, всегда берем 10000 (всё через пагинацию)
             amount = 10000
 
             stats, stats_error = await safe_run(
-                f"🎬 YT {ch['channel_id']}",
+                f"🎬 YT {profile}",
                 lambda ch=ch: process_youtube_channel(
                     session=session, conn=conn, PG_SCHEMA=settings.PG_SCHEMA,
-                    channel_id=ch["channel_id"], amount=amount,
+                    channel_id=resolved_channel_id, amount=amount,
                     tags=tags, log_prefix="🎬 YT"
                 ),
                 retries=3,
@@ -163,9 +197,9 @@ async def _process_youtube_list(session, pool, tags, only_accounts: set[str] | N
             )
             if stats_error or not stats:
                 reason = _describe_exception(stats_error)
-                logger.error("🚫 YT %s failed after retries: %s", ch.get("channel_id"), reason)
+                logger.error("🚫 YT %s failed after retries: %s", profile, reason)
                 failed_list.append(
-                    {"channel_id": ch.get("channel_id", ""), "reason": reason}
+                    {"profile": profile, "channel_id": resolved_channel_id, "reason": reason}
                 )
                 continue
             
@@ -175,16 +209,11 @@ async def _process_youtube_list(session, pool, tags, only_accounts: set[str] | N
             new_videos += total_new_vids
             
             if stats.get("is_not_found"):
-                logger.warning(f"🚩 YouTube {ch['channel_id']} is 404. Marking in Google Sheet...")
-                from app.services.enricher import mark_youtube_profile_deleted
-                asyncio.create_task(mark_youtube_profile_deleted(ch["channel_id"]))
-                failed_list.append({"channel_id": ch["channel_id"], "reason": "404 Not Found (deleted)"})
-            else:
-                # Update existing row instead of appending
-                from app.services.enricher import update_video_stats_in_sheet
-                asyncio.create_task(update_video_stats_in_sheet("youtube", ch["channel_id"], inserted + updated))
+                logger.warning(f"🚩 YouTube {profile} is 404. Marking in Google Sheet...")
+                asyncio.create_task(mark_youtube_profile_deleted(profile))
+                failed_list.append({"profile": profile, "channel_id": resolved_channel_id, "reason": "404 Not Found (deleted)"})
             
-            logger.info(f"✅ YT {ch['channel_id']} done | {stats}")
+            logger.info("✅ YT %s (%s) done | %s", profile, resolved_channel_id, stats)
 
     return total_accounts, new_videos, failed_list, []
 

@@ -2,7 +2,7 @@
 {% block title %}Выбор YouTube каналов{% endblock %}
 {% block content %}
 <h1 class="page-title">YouTube каналы</h1>
-<p class="lead">Укажите каналы, которые нужно обновить. Количество роликов для загрузки берётся из Google Sheets.</p>
+<p class="lead">Укажите профили, которые нужно обновить. Если у строки нет `channel_id`, он будет получен автоматически перед парсингом.</p>
 
 <div class="card">
   <div class="card__title">Каналы из таблицы</div>
@@ -12,15 +12,17 @@
         <thead>
           <tr>
             <th><input type="checkbox" id="selectAll" title="Выбрать все"></th>
+            <th>Профиль</th>
             <th>channel_id</th>
-            <th>Видео к обработке</th>
+            <th>Видео</th>
           </tr>
         </thead>
         <tbody>
           {% for ch in channels %}
           <tr>
-            <td><input type="checkbox" name="channels" value="{{ ch.channel_id }}"></td>
-            <td>{{ ch.channel_id }}</td>
+            <td><input type="checkbox" name="channels" value="{{ ch.profile }}"></td>
+            <td>{{ ch.profile }}</td>
+            <td>{{ ch.channel_id or "" }}</td>
             <td>{{ ch.amount }}</td>
           </tr>
           {% endfor %}
