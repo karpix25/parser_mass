@@ -231,7 +231,11 @@ async def _process_tiktok_list(session, pool, tags, only_accounts: set[str] | No
         if not settings.TIKTOK_SHEET_URL:
              return 0, 0, []
         all_profiles = await fetch_tiktok_profiles(session)
-        tiktok_profiles = [p for p in all_profiles if p["user_id"].casefold() in only_accounts]
+        tiktok_profiles = [
+            p for p in all_profiles
+            if p["username"].casefold() in only_accounts
+            or (p.get("user_id") or "").casefold() in only_accounts
+        ]
     else:
         if not settings.TIKTOK_SHEET_URL:
             logger.warning("⚠️ Пропускаем TikTok: переменная TIKTOK_SHEET_URL не задана")
@@ -244,20 +248,50 @@ async def _process_tiktok_list(session, pool, tags, only_accounts: set[str] | No
     sheet_rows = []
     async with pool.acquire() as conn:
         for profile in tiktok_profiles:
+            handle = profile["username"]
+            resolved_user_id = profile.get("user_id")
+
+            from app.services.enricher import (
+                fetch_tiktok_profile_metadata,
+                mark_tiktok_profile_deleted,
+                update_tiktok_profile_row,
+            )
+
+            metadata = await fetch_tiktok_profile_metadata(session, handle=handle)
+
+            if metadata and metadata.get("is_not_found"):
+                logger.warning("🚩 TikTok handle %s is 404. Marking in Google Sheet...", handle)
+                asyncio.create_task(mark_tiktok_profile_deleted(handle))
+                failed_list.append({"handle": handle, "reason": "404 Not Found (deleted)"})
+                continue
+
+            if metadata:
+                resolved_user_id = metadata.get("user_id") or resolved_user_id
+                asyncio.create_task(
+                    update_tiktok_profile_row(
+                        handle,
+                        user_id=resolved_user_id,
+                        video_count=metadata.get("video_count"),
+                        subscriber_count=metadata.get("subscriber_count"),
+                    )
+                )
+
+            if not resolved_user_id:
+                reason = "Unable to resolve user_id from handle"
+                logger.error("🚫 TikTok %s failed: %s", handle, reason)
+                failed_list.append({"handle": handle, "reason": reason})
+                continue
+
             # Игнорируем выбор количества из таблицы, всегда берем 10000 (всё через пагинацию)
             amount = 10000
-            
-            # Используем username как handle для поиска
-            handle = profile.get("username")
-            profile_label = handle or profile["user_id"]
 
             stats, stats_error = await safe_run(
-                f"🎬 TikTok {profile_label}",
+                f"🎬 TikTok {handle}",
                 lambda profile=profile, amount=amount, handle=handle: process_tiktok_profile(
                     session=session,
                     conn=conn,
                     PG_SCHEMA=settings.PG_SCHEMA,
-                    user_id=profile["user_id"],
+                    user_id=resolved_user_id,
                     amount=amount,
                     tags=tags,
                     sheet_username=handle,
@@ -267,9 +301,9 @@ async def _process_tiktok_list(session, pool, tags, only_accounts: set[str] | No
             )
             if stats_error or not stats:
                 reason = _describe_exception(stats_error)
-                logger.error("🚫 TikTok %s failed after retries: %s", profile.get("user_id"), reason)
+                logger.error("🚫 TikTok %s failed after retries: %s", handle, reason)
                 failed_list.append(
-                    {"user_id": profile.get("user_id", ""), "reason": reason}
+                    {"handle": handle, "user_id": resolved_user_id, "reason": reason}
                 )
                 continue
             
@@ -277,16 +311,11 @@ async def _process_tiktok_list(session, pool, tags, only_accounts: set[str] | No
             new_videos += inserted
             
             if stats.get("is_not_found"):
-                logger.warning(f"🚩 TikTok {profile['user_id']} is 404. Marking in Google Sheet...")
-                from app.services.enricher import mark_tiktok_profile_deleted
-                asyncio.create_task(mark_tiktok_profile_deleted(profile["user_id"]))
-                failed_list.append({"user_id": profile["user_id"], "reason": "404 Not Found (deleted)"})
-            else:
-                # Update existing row instead of appending
-                from app.services.enricher import update_video_stats_in_sheet
-                asyncio.create_task(update_video_stats_in_sheet("tiktok", profile["user_id"], inserted))
+                logger.warning(f"🚩 TikTok {handle} is 404. Marking in Google Sheet...")
+                asyncio.create_task(mark_tiktok_profile_deleted(handle))
+                failed_list.append({"handle": handle, "user_id": resolved_user_id, "reason": "404 Not Found (deleted)"})
             
-            logger.info(f"✅ TikTok {profile['user_id']} done | {stats}")
+            logger.info("✅ TikTok %s (%s) done | %s", handle, resolved_user_id, stats)
 
     return total_accounts, new_videos, failed_list, []
 

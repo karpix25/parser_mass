@@ -117,7 +117,7 @@ async def process_tiktok_profile(
     }
     label_name = sheet_username or user_id
     logger.info("🎯 TikTok %s: старт обработки | лимит=%s", label_name, amount)
-    videos, is_not_found = await fetch_tiktok_videos(session, user_id, amount, handle=sheet_username)
+    videos, is_not_found = await fetch_tiktok_videos(session, user_id, amount, handle=None)
     results["total_videos"] = len(videos)
     results["is_not_found"] = is_not_found
     if is_not_found:

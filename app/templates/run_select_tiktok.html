@@ -2,8 +2,7 @@
 {% block title %}Выбор TikTok профилей{% endblock %}
 {% block content %}
 <h1 class="page-title">TikTok профили</h1>
-<p class="lead">Выберите пользователей из таблицы, чтобы обновить их статистику. Количество роликов берётся из столбца
-  Google Sheets.</p>
+<p class="lead">Выберите handle из таблицы. Если у строки нет `id профиля`, он будет получен автоматически, сохранён в таблицу, и затем парсинг пойдёт уже по нему.</p>
 
 <div class="card">
   <div class="card__title">Список профилей</div>
@@ -17,10 +16,10 @@
     <div class="checkbox-grid checkbox-grid--columns scroll-area">
       {% for p in profiles %}
       <label class="checkbox-item">
-        <input type="checkbox" name="profiles" value="{{ p.user_id }}">
+        <input type="checkbox" name="profiles" value="{{ p.username }}">
         <span>
           <strong>{{ p.username }}</strong><br />
-          <span class="muted">ID: {{ p.user_id }} · Видео к обработке: {{ p.amount }}</span>
+          <span class="muted">ID: {{ p.user_id or "" }} · Видео к обработке: {{ p.amount }}</span>
         </span>
       </label>
       {% endfor %}

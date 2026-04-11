@@ -212,14 +212,17 @@ def _map_youtube(row: dict[str, str]) -> dict | None:
 
 def _map_tiktok(row: dict[str, str]) -> dict | None:
     username = _normalize_text(
-        row.get("usernames") or row.get("username") or row.get("логин") or row.get("login")
+        row.get("handle") or row.get("usernames") or row.get("username") or row.get("логин") or row.get("login")
     )
+    if username.startswith("@"):
+        username = username[1:]
+
     user_id = _normalize_text(
         row.get("id_профиля") or row.get("idпрофиля") or row.get("id-профиля") 
         or row.get("id_profile") or row.get("profile_id") or row.get("user_id")
-    )
+    ) or None
     
-    if not user_id and not username:
+    if not username:
         return None
         
     amount_raw = (
@@ -229,12 +232,17 @@ def _map_tiktok(row: dict[str, str]) -> dict | None:
         amount = int(_normalize_text(amount_raw, to_lower=True) or "0")
     except ValueError:
         amount = 0
+
+    subscribers = _normalize_text(
+        row.get("подписки") or row.get("subscribers") or row.get("followers") or row.get("подписчики")
+    ) or None
         
     return {
-        "user_id": user_id or username,
+        "user_id": user_id,
         "amount": max(amount, 0),
-        "username": username or user_id,
-        "_dedup_key": (user_id or username).casefold()
+        "username": username,
+        "subscribers": subscribers,
+        "_dedup_key": username.casefold()
     }
 
 # --- Public API ---

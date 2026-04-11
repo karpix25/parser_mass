@@ -23,6 +23,8 @@ YOUTUBE_ID_HEADERS = ["id профиля", "id_профиля", "idпрофил�
 VIDEO_COUNT_HEADERS = ["видео", "video", "amount", "количество_видео", "количество видео"]
 SUBSCRIBERS_HEADERS = ["подписки", "subscribers", "followers", "подписчики"]
 UPDATED_AT_HEADERS = ["дата обновления", "дата_обновления", "date", "updated_at"]
+TIKTOK_HANDLE_HEADERS = ["handle", "логин", "login", "username", "usernames", "профиль", "profile"]
+TIKTOK_ID_HEADERS = ["id_профиля", "idпрофиля", "id_profile", "user_id", "user id", "id профиля"]
 
 def _get_gclient():
     from app.services.gsheets import get_gspread_client
@@ -98,6 +100,27 @@ def _extract_numeric_count(raw_value) -> int | None:
         return None
 
 
+def _normalize_tiktok_handle(value: str | None) -> str:
+    if not value:
+        return ""
+    cleaned = str(value).strip()
+    for prefix in (
+        "https://www.tiktok.com/@",
+        "https://tiktok.com/@",
+        "http://www.tiktok.com/@",
+        "http://tiktok.com/@",
+    ):
+        if cleaned.startswith(prefix):
+            cleaned = cleaned[len(prefix):]
+            break
+    cleaned = cleaned.strip().strip("/")
+    if "?" in cleaned:
+        cleaned = cleaned.split("?", 1)[0]
+    if cleaned.startswith("@"):
+        cleaned = cleaned[1:]
+    return cleaned.casefold()
+
+
 async def fetch_youtube_profile_metadata(
     session: aiohttp.ClientSession,
     *,
@@ -140,6 +163,35 @@ async def fetch_youtube_profile_metadata(
         "channel_id": str(resolved_channel_id).strip() if resolved_channel_id else None,
         "subscriber_count": _extract_numeric_count(subscriber_count),
         "video_count": _extract_numeric_count(video_count),
+    }
+
+
+async def fetch_tiktok_profile_metadata(
+    session: aiohttp.ClientSession,
+    *,
+    handle: str | None = None,
+) -> dict | None:
+    clean_handle = _normalize_tiktok_handle(handle)
+    if not clean_handle:
+        return None
+
+    data = await _fetch_sc_data(session, SC_TT_BASE, {"handle": clean_handle})
+    if not data:
+        return None
+    if data.get("error") == "not_found":
+        return {"is_not_found": True}
+
+    user_data = data.get("user") or {}
+    stats = data.get("stats") or {}
+    resolved_user_id = user_data.get("id") or user_data.get("uid")
+    resolved_handle = user_data.get("uniqueId") or user_data.get("unique_id") or clean_handle
+
+    return {
+        "is_not_found": False,
+        "user_id": str(resolved_user_id).strip() if resolved_user_id else None,
+        "handle": str(resolved_handle).strip() if resolved_handle else clean_handle,
+        "subscriber_count": _extract_numeric_count(stats.get("followerCount")),
+        "video_count": _extract_numeric_count(stats.get("videoCount")),
     }
 
 
@@ -223,6 +275,77 @@ async def update_youtube_profile_row(
 
     except Exception as e:
         logger.error(f"Error updating YouTube row for {profile}: {e}")
+
+
+async def update_tiktok_profile_row(
+    handle: str,
+    *,
+    user_id: str | None = None,
+    video_count: int | None = None,
+    subscriber_count: int | None = None,
+    updated_at: str | None = None,
+):
+    target_url = settings.TIKTOK_OUTPUT_SHEET_URL or settings.TIKTOK_SHEET_URL
+    if not target_url or not handle:
+        return
+
+    try:
+        loop = asyncio.get_event_loop()
+        gc = await loop.run_in_executor(None, _get_gclient)
+        if not gc:
+            return
+
+        ws = _open_sheet_by_url(gc, target_url)
+        all_values = ws.get_all_values()
+        if not all_values:
+            return
+
+        headers = all_values[0]
+        col_handle_idx = _find_col_idx(headers, TIKTOK_HANDLE_HEADERS)
+        col_id_idx = _find_col_idx(headers, TIKTOK_ID_HEADERS)
+        col_video_idx = _find_col_idx(headers, VIDEO_COUNT_HEADERS)
+        col_subs_idx = _find_col_idx(headers, SUBSCRIBERS_HEADERS)
+        col_date_idx = _find_col_idx(headers, UPDATED_AT_HEADERS)
+
+        if col_handle_idx == -1:
+            logger.warning("⚠️ Could not find TikTok handle column in sheet headers: %s", headers)
+            return
+
+        handle_key = _normalize_tiktok_handle(handle)
+        target_row_idx = -1
+        for i, row in enumerate(all_values[1:], start=2):
+            if len(row) < col_handle_idx:
+                continue
+            if _normalize_tiktok_handle(row[col_handle_idx - 1]) == handle_key:
+                target_row_idx = i
+                break
+
+        if target_row_idx == -1:
+            logger.warning("⚠️ Could not find TikTok handle %s in sheet to update.", handle)
+            return
+
+        cells_to_update = []
+        if user_id and col_id_idx != -1:
+            cells_to_update.append(gspread.Cell(target_row_idx, col_id_idx, str(user_id)))
+        if video_count is not None and col_video_idx != -1:
+            cells_to_update.append(gspread.Cell(target_row_idx, col_video_idx, str(video_count)))
+        if subscriber_count is not None and col_subs_idx != -1:
+            cells_to_update.append(gspread.Cell(target_row_idx, col_subs_idx, str(subscriber_count)))
+        if col_date_idx != -1:
+            cells_to_update.append(
+                gspread.Cell(
+                    target_row_idx,
+                    col_date_idx,
+                    updated_at or datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S"),
+                )
+            )
+
+        if cells_to_update:
+            ws.update_cells(cells_to_update)
+            logger.info("✅ Updated TikTok row for handle %s (row %s)", handle, target_row_idx)
+
+    except Exception as e:
+        logger.error(f"Error updating TikTok row for {handle}: {e}")
 
 async def enrich_youtube_sheet(gc: gspread.Client, session: aiohttp.ClientSession):
     target_url = settings.YOUTUBE_OUTPUT_SHEET_URL or settings.YOUTUBE_SHEET_URL
@@ -340,26 +463,20 @@ async def enrich_tiktok_sheet(gc: gspread.Client, session: aiohttp.ClientSession
         return
 
     try:
-        import re
-        from gspread.utils import extract_id_from_url
-        sh = gc.open_by_key(extract_id_from_url(target_url))
-        
-        match = re.search(r'(?:gid=)(\d+)', target_url)
-        if match:
-            ws = sh.get_worksheet_by_id(int(match.group(1)))
-        else:
-            ws = sh.sheet1
+        ws = _open_sheet_by_url(gc, target_url)
         
         headers = ws.row_values(1)
         
         # Ищем колонки для записи
-        # Для TikTok логин всегда берется из колонки A (индекс 1)
-        col_user_source_idx = 1
+        # Для TikTok handle всегда берется из колонки A
+        col_user_source_idx = _find_col_idx(headers, TIKTOK_HANDLE_HEADERS)
+        if col_user_source_idx == -1:
+            col_user_source_idx = 1
         
-        col_id_write_idx   = _find_col_idx(headers, ["id_профиля", "idпрофиля", "id_profile", "user_id", "user id", "id профиля"])
-        col_video_idx = _find_col_idx(headers, ["видео", "video", "amount", "количество_видео", "количество видео"])
-        col_subs_idx = _find_col_idx(headers, ["подписки", "subscribers", "followers", "подписчики"])
-        col_date_idx = _find_col_idx(headers, ["дата обновления", "дата_обновления", "date", "updated_at"])
+        col_id_write_idx = _find_col_idx(headers, TIKTOK_ID_HEADERS)
+        col_video_idx = _find_col_idx(headers, VIDEO_COUNT_HEADERS)
+        col_subs_idx = _find_col_idx(headers, SUBSCRIBERS_HEADERS)
+        col_date_idx = _find_col_idx(headers, UPDATED_AT_HEADERS)
 
         all_values = ws.get_all_values()
         rows = all_values[1:]
@@ -373,22 +490,14 @@ async def enrich_tiktok_sheet(gc: gspread.Client, session: aiohttp.ClientSession
             username = row[col_user_source_idx - 1] if len(row) >= col_user_source_idx else ""
             if not username:
                 continue
-            
-            # Чистим юзернейм от ссылок
-            clean_user = username.replace("https://www.tiktok.com/@", "").strip("/")
-            clean_user = clean_user.split("?")[0]
-            if "@" in clean_user:
-                clean_user = clean_user.replace("@", "")
 
-            # Запрос
-            params = {"handle": clean_user}
-            data = await _fetch_sc_data(session, SC_TT_BASE, params)
+            data = await fetch_tiktok_profile_metadata(session, handle=username)
             
             row_cells = []
             col_status_idx = 7 # Column G
 
             if data:
-                if data.get("error") == "not_found":
+                if data.get("is_not_found"):
                     # Записываем причину в колонку G
                     row_cells.append(gspread.Cell(real_row_idx, col_status_idx, "удален"))
                     
@@ -398,12 +507,9 @@ async def enrich_tiktok_sheet(gc: gspread.Client, session: aiohttp.ClientSession
                         row_cells.append(gspread.Cell(real_row_idx, col_date_idx, today_str))
                 else:
                     # Успех
-                    user_data = data.get("user") or {}
-                    stats = data.get("stats") or {}
-                    
-                    uid = user_data.get("id")
-                    v_count = stats.get("videoCount")
-                    s_count = stats.get("followerCount")
+                    uid = data.get("user_id")
+                    v_count = data.get("video_count")
+                    s_count = data.get("subscriber_count")
 
                     # Очищаем колонку G
                     row_cells.append(gspread.Cell(real_row_idx, col_status_idx, ""))
@@ -443,11 +549,11 @@ async def enrich_tiktok_sheet(gc: gspread.Client, session: aiohttp.ClientSession
         logger.error(f"Error enriching TikTok sheet: {e}")
 
 
-async def mark_tiktok_profile_deleted(user_id: str):
+async def mark_tiktok_profile_deleted(handle: str):
     """
-    Finds the row for user_id in the TikTok sheet and marks column G as 'удален'.
+    Finds the row for handle in the TikTok sheet and marks column G as 'удален'.
     """
-    await _mark_profile_deleted_generic(user_id, platform="tiktok")
+    await _mark_profile_deleted_generic(handle, platform="tiktok")
 
 
 async def mark_youtube_profile_deleted(channel_id: str):
@@ -460,7 +566,7 @@ async def mark_youtube_profile_deleted(channel_id: str):
 async def _mark_profile_deleted_generic(profile_id: str, platform: str):
     if platform == "tiktok":
         target_url = settings.TIKTOK_OUTPUT_SHEET_URL or settings.TIKTOK_SHEET_URL
-        possible_id_headers = ["id_профиля", "idпрофиля", "id_profile", "user_id", "user id", "id профиля"]
+        possible_id_headers = TIKTOK_HANDLE_HEADERS
     else:
         target_url = settings.YOUTUBE_OUTPUT_SHEET_URL or settings.YOUTUBE_SHEET_URL
         possible_id_headers = YOUTUBE_PROFILE_HEADERS
@@ -490,7 +596,7 @@ async def _mark_profile_deleted_generic(profile_id: str, platform: str):
         headers = all_values[0]
         col_id_idx = _find_col_idx(headers, possible_id_headers)
         if col_id_idx == -1:
-            col_id_idx = 1 if platform == "youtube" else 2 # common fallbacks
+            col_id_idx = 1
             
         col_status_idx = 7 # Column G
         
@@ -500,6 +606,10 @@ async def _mark_profile_deleted_generic(profile_id: str, platform: str):
                 val = str(row[col_id_idx - 1]).strip()
                 if platform == "youtube":
                     if _normalize_profile_value(val) == _normalize_profile_value(profile_id):
+                        target_row_idx = i
+                        break
+                elif platform == "tiktok":
+                    if _normalize_tiktok_handle(val) == _normalize_tiktok_handle(profile_id):
                         target_row_idx = i
                         break
                 elif val == str(profile_id).strip():
