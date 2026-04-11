@@ -7,22 +7,25 @@
 <div class="card">
   <div class="card__title">Доступные аккаунты</div>
   <form method="post" action="/run-selected" class="stack">
-    <div style="margin-bottom: 1rem;">
-      <label class="checkbox-item">
-        <input type="checkbox" id="selectAll">
-        <strong>Выбрать все</strong>
-      </label>
-    </div>
-    <div class="checkbox-grid checkbox-grid--columns scroll-area">
-      {% for a in accounts %}
-      <label class="checkbox-item">
-        <input type="checkbox" name="accounts" value="{{ a.username }}">
-        <span>
-          <strong>{{ a.username }}</strong><br />
-          <span class="muted">Видео к обработке: {{ a.amount }}</span>
-        </span>
-      </label>
-      {% endfor %}
+    <div class="scroll-area">
+      <table class="table">
+        <thead>
+          <tr>
+            <th><input type="checkbox" id="selectAll" title="Выбрать все"></th>
+            <th>Аккаунт</th>
+            <th>Видео</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for a in accounts %}
+          <tr>
+            <td><input type="checkbox" name="accounts" value="{{ a.username }}"></td>
+            <td>{{ a.username }}</td>
+            <td>{{ a.amount }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
     </div>
     <button class="btn btn--primary" type="submit">🚀 Запустить выбранные аккаунты</button>
   </form>
