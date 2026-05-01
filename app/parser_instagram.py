@@ -66,8 +66,8 @@ async def fetch_instagram_videos(username: str, session: aiohttp.ClientSession):
     pagination_failed = False
     last_error: str | None = None
 
-    logger.info("📸 Fetching videos for: %s", username)
-    logger.debug("🧩 API BASE: %s", IG_API_BASE)
+    logger.info("📸 IG %s: fetching videos", username)
+    logger.debug("🧩 IG %s: API BASE=%s", username, IG_API_BASE)
 
     while True:
         page += 1
@@ -81,19 +81,19 @@ async def fetch_instagram_videos(username: str, session: aiohttp.ClientSession):
             data = await _fetch_page(session, params, headers)
         except RetryError as err:
             last_error = _format_error(err)
-            logger.error("🚫 %s: no data after retries (page %d): %s", username, page, last_error)
+            logger.error("🚫 IG %s: no data after retries (page %d): %s", username, page, last_error)
             pagination_failed = True
             break
         except Exception as e:
             last_error = _format_error(e)
-            logger.error("🚫 %s: unexpected error (page %d): %s", username, page, last_error)
+            logger.error("🚫 IG %s: unexpected error (page %d): %s", username, page, last_error)
             pagination_failed = True
             break
 
         if not data:
              # Should be caught by RetryError usually if it was a network issue, 
              # but if it returns empty json with 200 OK?
-            logger.warning("🚫 %s: empty data received (page %d)", username, page)
+            logger.warning("🚫 IG %s: empty data received (page %d)", username, page)
             break
 
         data_obj = data.get("data", {})
@@ -111,22 +111,22 @@ async def fetch_instagram_videos(username: str, session: aiohttp.ClientSession):
         # Or we can just try one more time if it looks suspicious.
         
         if token and not reels:
-             logger.warning("⚠️ %s: empty page %d with token — trying one more time", username, page)
+             logger.warning("⚠️ IG %s: empty page %d with token, trying one more time", username, page)
              await asyncio.sleep(2)
              try:
                  data = await _fetch_page(session, params, headers)
                  reels = data.get("data", {}).get("items") or []
                  if reels:
-                     logger.info("✅ %s: recovered after token retry", username)
+                     logger.info("✅ IG %s: recovered after token retry", username)
              except Exception as retry_err:
                  last_error = _format_error(retry_err)
-                 logger.warning("⚠️ %s: retry after empty page failed: %s", username, last_error)
+                 logger.warning("⚠️ IG %s: retry after empty page failed: %s", username, last_error)
 
-        logger.info("📦 %s: %d videos fetched (page %d)", username, len(reels), page)
-        logger.debug("🔁 has_token=%s, token=%s", bool(token), (token[:40] + '…') if token else None)
+        logger.info("📦 IG %s: %d videos fetched (page %d)", username, len(reels), page)
+        logger.debug("🔁 IG %s: has_token=%s, token=%s", username, bool(token), (token[:40] + '…') if token else None)
 
         if not reels:
-            logger.warning("🚫 No videos found for %s (page %d)", username, page)
+            logger.warning("🚫 IG %s: no videos found (page %d)", username, page)
             break
 
         for m in reels:
@@ -160,16 +160,16 @@ async def fetch_instagram_videos(username: str, session: aiohttp.ClientSession):
                 ) or "",
             })
 
-        logger.info("📈 %s: total so far %d videos", username, len(out))
+        logger.info("📈 IG %s: total so far %d videos", username, len(out))
 
         if not token:
-            logger.info("✅ %s: pagination ended normally (no token)", username)
+            logger.info("✅ IG %s: pagination ended normally (no token)", username)
             break
 
         await asyncio.sleep(_min_interval)
 
     logger.info(
-        "🏁 Done %s: total %d videos parsed (pagination_failed=%s)",
+        "🏁 IG %s: total %d videos parsed (pagination_failed=%s)",
         username,
         len(out),
         pagination_failed,

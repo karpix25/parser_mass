@@ -4,6 +4,7 @@ from fastapi.staticfiles import StaticFiles
 
 from app.core.config import settings
 from app.db import init_db
+from app.sheets import preload_reference_data
 from app.services.scheduler import scheduler, setup_scheduler
 from app.api.routes import router
 
@@ -56,7 +57,11 @@ app.include_router(router)
 async def startup():
     await init_db()
     logger.info("✅ Database initialized")
+    try:
+        await preload_reference_data(force=True)
+        logger.info("✅ Reference sheets preloaded")
+    except Exception as e:
+        logger.warning("⚠️ Failed to preload reference sheets: %s", e)
     await setup_scheduler()
     scheduler.start()
     logger.info("🕒 Scheduler started (weekly + manual mode)")
-
