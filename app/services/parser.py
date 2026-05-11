@@ -149,7 +149,8 @@ async def _process_youtube_list(session, pool, tags, only_accounts: set[str] | N
     async with pool.acquire() as conn:
         for ch in yt_channels:
             profile = ch["profile"]
-            resolved_channel_id = ch.get("channel_id")
+            sheet_channel_id = ch.get("channel_id")
+            resolved_channel_id = sheet_channel_id
 
             from app.services.enricher import fetch_youtube_profile_metadata, mark_youtube_profile_deleted, update_youtube_profile_row
 
@@ -166,15 +167,24 @@ async def _process_youtube_list(session, pool, tags, only_accounts: set[str] | N
                 continue
 
             if metadata:
-                resolved_channel_id = metadata.get("channel_id") or resolved_channel_id
-                asyncio.create_task(
-                    update_youtube_profile_row(
+                metadata_channel_id = metadata.get("channel_id")
+                resolved_channel_id = metadata_channel_id or resolved_channel_id
+                if metadata_channel_id and not sheet_channel_id:
+                    await update_youtube_profile_row(
                         profile,
-                        channel_id=resolved_channel_id,
+                        channel_id=metadata_channel_id,
                         video_count=metadata.get("video_count"),
                         subscriber_count=metadata.get("subscriber_count"),
                     )
-                )
+                else:
+                    asyncio.create_task(
+                        update_youtube_profile_row(
+                            profile,
+                            channel_id=resolved_channel_id,
+                            video_count=metadata.get("video_count"),
+                            subscriber_count=metadata.get("subscriber_count"),
+                        )
+                    )
 
             if not resolved_channel_id:
                 reason = "Unable to resolve channel_id from profile"
@@ -249,7 +259,8 @@ async def _process_tiktok_list(session, pool, tags, only_accounts: set[str] | No
     async with pool.acquire() as conn:
         for profile in tiktok_profiles:
             handle = profile["username"]
-            resolved_user_id = profile.get("user_id")
+            sheet_user_id = profile.get("user_id")
+            resolved_user_id = sheet_user_id
 
             from app.services.enricher import (
                 fetch_tiktok_profile_metadata,
@@ -266,15 +277,24 @@ async def _process_tiktok_list(session, pool, tags, only_accounts: set[str] | No
                 continue
 
             if metadata:
-                resolved_user_id = metadata.get("user_id") or resolved_user_id
-                asyncio.create_task(
-                    update_tiktok_profile_row(
+                metadata_user_id = metadata.get("user_id")
+                resolved_user_id = metadata_user_id or resolved_user_id
+                if metadata_user_id and not sheet_user_id:
+                    await update_tiktok_profile_row(
                         handle,
-                        user_id=resolved_user_id,
+                        user_id=metadata_user_id,
                         video_count=metadata.get("video_count"),
                         subscriber_count=metadata.get("subscriber_count"),
                     )
-                )
+                else:
+                    asyncio.create_task(
+                        update_tiktok_profile_row(
+                            handle,
+                            user_id=resolved_user_id,
+                            video_count=metadata.get("video_count"),
+                            subscriber_count=metadata.get("subscriber_count"),
+                        )
+                    )
 
             if not resolved_user_id:
                 reason = "Unable to resolve user_id from handle"
