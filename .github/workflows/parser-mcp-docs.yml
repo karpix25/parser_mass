@@ -1,0 +1,30 @@
+name: Parser MCP Docs Check
+
+on:
+  pull_request:
+    paths:
+      - "app/parser*.py"
+      - "app/services/parser.py"
+      - "app/services/enricher.py"
+      - "scripts/check_scrapecreators_mcp.py"
+      - ".github/workflows/parser-mcp-docs.yml"
+  push:
+    branches:
+      - main
+    paths:
+      - "app/parser*.py"
+      - "app/services/parser.py"
+      - "app/services/enricher.py"
+      - "scripts/check_scrapecreators_mcp.py"
+      - ".github/workflows/parser-mcp-docs.yml"
+
+jobs:
+  scrapecreators-mcp:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Check parser assumptions against ScrapeCreators MCP
+        run: python scripts/check_scrapecreators_mcp.py
