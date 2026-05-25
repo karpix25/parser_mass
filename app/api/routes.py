@@ -119,12 +119,18 @@ async def runs(request: Request):
                                         if isinstance(fail_entry, dict):
                                             value = (
                                                 fail_entry.get("account")
+                                                or fail_entry.get("profile")
+                                                or fail_entry.get("handle")
                                                 or fail_entry.get("channel_id")
                                                 or fail_entry.get("user_id")
                                                 or fail_entry.get("value")
                                                 or ""
                                             )
-                                            reason = fail_entry.get("reason") or "unknown error"
+                                            reason = (
+                                                fail_entry.get("reason")
+                                                or fail_entry.get("error")
+                                                or "unknown error"
+                                            )
                                         else:
                                             value = str(fail_entry)
                                             reason = "unknown error"
