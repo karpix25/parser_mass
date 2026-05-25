@@ -85,12 +85,29 @@ async def _process_instagram_list(session, pool, tags, only_accounts: set[str] |
     async with pool.acquire() as conn:
         for acc in ig_accounts:
             username = acc["username"]
+            from app.services.enricher import fetch_instagram_profile_metadata, update_instagram_profile_row
+
+            instagram_metadata = await fetch_instagram_profile_metadata(session, username=username)
+            if instagram_metadata and not instagram_metadata.get("api_error"):
+                await update_instagram_profile_row(
+                    username,
+                    profile_id=instagram_metadata.get("profile_id"),
+                    video_count=instagram_metadata.get("video_count"),
+                    subscriber_count=instagram_metadata.get("subscriber_count"),
+                )
+            elif instagram_metadata and instagram_metadata.get("api_error"):
+                await update_instagram_profile_row(
+                    username,
+                    failure_reason=instagram_metadata.get("reason") or _metadata_api_error_reason(instagram_metadata),
+                )
+
             videos_result, videos_error = await safe_run(
                 f"📦 IG {username}", lambda: fetch_instagram_videos(username, session)
             )
             if videos_error or not videos_result:
                 reason = _describe_exception(videos_error)
                 logger.error("🚫 IG %s failed after retries: %s", username, reason)
+                await update_instagram_profile_row(username, failure_reason=reason)
                 failed_list.append({"account": username, "reason": reason})
                 continue
 
@@ -98,10 +115,12 @@ async def _process_instagram_list(session, pool, tags, only_accounts: set[str] |
             if pagination_failed:
                 reason = fail_reason or "pagination failed"
                 logger.error("⚠️ IG %s pagination failed: %s", username, reason)
+                await update_instagram_profile_row(username, failure_reason=reason)
                 failed_list.append({"account": username, "reason": reason})
                 # We still process whatever videos we got
 
             if not videos:
+                await update_instagram_profile_row(username, video_count=0)
                 continue
 
             for v in videos:
@@ -129,6 +148,7 @@ async def _process_instagram_list(session, pool, tags, only_accounts: set[str] |
                         product
                     )
                     new_videos += 1
+            await update_instagram_profile_row(username, video_count=len(videos))
             logger.info(f"✅ IG {username} done ({len(videos)} videos)")
 
     return total_accounts, new_videos, failed_list

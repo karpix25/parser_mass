@@ -11,6 +11,7 @@ from tenacity import retry, stop_after_attempt, wait_fixed
 from app.core.config import settings
 
 logger = logging.getLogger(__name__)
+_instagram_sheet_cache: dict[str, object] = {}
 
 SC_API_KEY = os.getenv("SCRAPECREATORS_KEY", "")
 # Используем v1 как на скриншотах пользователя, хотя в проекте местами v3.
@@ -18,6 +19,8 @@ SC_API_KEY = os.getenv("SCRAPECREATORS_KEY", "")
 SC_YT_BASE = "https://api.scrapecreators.com/v1/youtube/channel"
 SC_TT_BASE = "https://api.scrapecreators.com/v1/tiktok/profile"
 
+INSTAGRAM_USERNAME_HEADERS = ["usernames", "username", "профиль", "profile", "account", "логин"]
+INSTAGRAM_ID_HEADERS = ["id профиля", "id_профиля", "idпрофиля", "id_profile", "profile_id"]
 YOUTUBE_PROFILE_HEADERS = ["профиль", "profile", "handle", "username", "канал", "channel"]
 YOUTUBE_ID_HEADERS = ["id профиля", "id_профиля", "idпрофиля", "channel_id", "channel id"]
 VIDEO_COUNT_HEADERS = ["видео", "video", "amount", "количество_видео", "количество видео"]
@@ -56,6 +59,33 @@ async def _fetch_sc_data(session, url, params):
         return {
             "error": "request_failed",
             "message": str(e),
+        }
+
+
+async def _fetch_instagram_reels_data(session: aiohttp.ClientSession, username: str) -> dict:
+    headers = {
+        "x-rapidapi-key": settings.RAPIDAPI_KEY,
+        "x-rapidapi-host": settings.RAPIDAPI_HOST,
+        "accept": "application/json",
+    }
+    params = {
+        "username_or_id_or_url": username.strip(),
+        "url_embed_safe": "false",
+    }
+    try:
+        async with session.get(settings.IG_API_BASE, headers=headers, params=params, timeout=60) as resp:
+            if resp.status == 200:
+                return await resp.json()
+            text = await resp.text()
+            return {
+                "error": "api_error",
+                "status": resp.status,
+                "message": text[:500],
+            }
+    except Exception as exc:
+        return {
+            "error": "request_failed",
+            "message": str(exc),
         }
 
 def _find_col_idx(headers: list[str], possible_names: list[str]) -> int:
@@ -126,6 +156,120 @@ def _normalize_tiktok_handle(value: str | None) -> str:
     if cleaned.startswith("@"):
         cleaned = cleaned[1:]
     return cleaned.casefold()
+
+
+def _first_value(data, keys: set[str]):
+    if isinstance(data, dict):
+        for key, value in data.items():
+            if str(key).casefold() in keys and value not in (None, ""):
+                return value
+        for value in data.values():
+            found = _first_value(value, keys)
+            if found not in (None, ""):
+                return found
+    elif isinstance(data, list):
+        for value in data:
+            found = _first_value(value, keys)
+            if found not in (None, ""):
+                return found
+    return None
+
+
+def _instagram_items(data: dict) -> list:
+    payload = data.get("data") if isinstance(data, dict) else {}
+    if not isinstance(payload, dict):
+        payload = {}
+    items = payload.get("items") or data.get("items") or data.get("reels") or []
+    return items if isinstance(items, list) else []
+
+
+def _instagram_user_payload(data: dict, items: list) -> dict:
+    payload = data.get("data") if isinstance(data, dict) else {}
+    if not isinstance(payload, dict):
+        payload = {}
+    candidates = [
+        payload.get("user"),
+        payload.get("owner"),
+        data.get("user"),
+        data.get("owner"),
+    ]
+    if items:
+        first_item = items[0] if isinstance(items[0], dict) else {}
+        candidates.extend([
+            first_item.get("user"),
+            first_item.get("owner"),
+            first_item.get("author"),
+        ])
+    return next((item for item in candidates if isinstance(item, dict)), {})
+
+
+def _friendly_external_error(platform: str, data: dict) -> str:
+    status = data.get("status")
+    message = str(data.get("message") or data.get("error") or "ошибка API").casefold()
+    if status == 402 or "out of credits" in message or "buy more" in message:
+        return "ошибка API 402: закончились кредиты"
+    if status == 404 or "not found" in message:
+        return "не найден"
+    if status == 429 or "rate limit" in message or "too many requests" in message:
+        return "ошибка API 429: лимит запросов"
+    if status in {401, 403} or "unauthorized" in message or "forbidden" in message:
+        return f"ошибка API {status}: нет доступа" if status else "нет доступа к API"
+    if status:
+        return f"ошибка API {status}"
+    return f"ошибка {platform} API"
+
+
+async def fetch_instagram_profile_metadata(
+    session: aiohttp.ClientSession,
+    *,
+    username: str,
+) -> dict | None:
+    clean_username = str(username or "").strip().lstrip("@")
+    if not clean_username:
+        return None
+
+    data = await _fetch_instagram_reels_data(session, clean_username)
+    if not data:
+        return {"api_error": True, "message": "пустой ответ API"}
+    if data.get("error"):
+        return {
+            "api_error": True,
+            "status": data.get("status"),
+            "message": data.get("message") or data.get("error"),
+            "reason": _friendly_external_error("Instagram", data),
+        }
+
+    items = _instagram_items(data)
+    user_payload = _instagram_user_payload(data, items)
+    profile_id = _first_value(
+        user_payload,
+        {"pk", "id", "user_id", "profile_id", "instagram_id"},
+    ) or _first_value(data, {"user_id", "profile_id", "instagram_id"})
+    if profile_id and isinstance(profile_id, str) and profile_id.startswith("http"):
+        profile_id = None
+    subscriber_count = _first_value(
+        user_payload or data,
+        {"follower_count", "followers", "followers_count", "subscriber_count"},
+    )
+    video_count = _first_value(
+        data,
+        {"media_count", "video_count", "videos_count", "reels_count"},
+    )
+    if video_count in (None, "") and items:
+        video_count = len(items)
+
+    if not profile_id:
+        return {
+            "api_error": True,
+            "reason": "не удалось получить id профиля",
+        }
+
+    return {
+        "api_error": False,
+        "profile_id": str(profile_id).strip(),
+        "subscriber_count": _extract_numeric_count(subscriber_count),
+        "video_count": _extract_numeric_count(video_count),
+    }
 
 
 async def fetch_youtube_profile_metadata(
@@ -223,6 +367,52 @@ def _open_sheet_by_url(gc: gspread.Client, target_url: str):
     if match:
         return sh.get_worksheet_by_id(int(match.group(1)))
     return sh.sheet1
+
+
+def _get_instagram_sheet_context(gc: gspread.Client, target_url: str) -> dict:
+    cache_key = f"instagram:{target_url}"
+    cached = _instagram_sheet_cache.get(cache_key)
+    if isinstance(cached, dict):
+        return cached
+
+    ws = _open_sheet_by_url(gc, target_url)
+    all_values = ws.get_all_values()
+    headers = all_values[0] if all_values else []
+
+    col_username_idx = _find_col_idx(headers, INSTAGRAM_USERNAME_HEADERS)
+    if col_username_idx == -1:
+        col_username_idx = 1
+    col_subs_idx = _find_col_idx(headers, SUBSCRIBERS_HEADERS)
+    if col_subs_idx == -1:
+        col_subs_idx = 2
+    col_video_idx = _find_col_idx(headers, VIDEO_COUNT_HEADERS)
+    if col_video_idx == -1:
+        col_video_idx = 3
+    col_id_idx = _find_col_idx(headers, INSTAGRAM_ID_HEADERS)
+    if col_id_idx == -1:
+        col_id_idx = 4
+    col_date_idx = _find_col_idx(headers, UPDATED_AT_HEADERS)
+    if col_date_idx == -1:
+        col_date_idx = 5
+
+    row_by_username = {}
+    for i, row in enumerate(all_values[1:], start=2):
+        if len(row) < col_username_idx:
+            continue
+        username_key = _normalize_tiktok_handle(row[col_username_idx - 1])
+        if username_key:
+            row_by_username[username_key] = i
+
+    context = {
+        "ws": ws,
+        "row_by_username": row_by_username,
+        "col_subs_idx": col_subs_idx,
+        "col_video_idx": col_video_idx,
+        "col_id_idx": col_id_idx,
+        "col_date_idx": col_date_idx,
+    }
+    _instagram_sheet_cache[cache_key] = context
+    return context
 
 
 async def update_youtube_profile_row(
@@ -365,6 +555,127 @@ async def update_tiktok_profile_row(
 
     except Exception as e:
         logger.error(f"Error updating TikTok row for {handle}: {e}")
+
+
+async def update_instagram_profile_row(
+    username: str,
+    *,
+    profile_id: str | None = None,
+    video_count: int | None = None,
+    subscriber_count: int | None = None,
+    failure_reason: str | None = None,
+    updated_at: str | None = None,
+):
+    target_url = settings.ACCOUNTS_SHEET_URL or settings.OUTPUT_SHEET_URL
+    if not target_url or not username:
+        return
+
+    try:
+        loop = asyncio.get_event_loop()
+        gc = await loop.run_in_executor(None, _get_gclient)
+        if not gc:
+            return
+
+        username_key = _normalize_tiktok_handle(username)
+        context = _get_instagram_sheet_context(gc, target_url)
+        ws = context["ws"]
+        target_row_idx = context["row_by_username"].get(username_key)
+
+        if not target_row_idx:
+            logger.warning("⚠️ Could not find Instagram username %s in sheet to update.", username)
+            return
+
+        cells_to_update = [
+            gspread.Cell(
+                target_row_idx,
+                context["col_date_idx"],
+                updated_at or datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S"),
+            )
+        ]
+        if failure_reason:
+            cells_to_update.append(gspread.Cell(target_row_idx, context["col_id_idx"], failure_reason))
+        elif profile_id:
+            cells_to_update.append(gspread.Cell(target_row_idx, context["col_id_idx"], str(profile_id)))
+        if video_count is not None:
+            cells_to_update.append(gspread.Cell(target_row_idx, context["col_video_idx"], str(video_count)))
+        if subscriber_count is not None:
+            cells_to_update.append(gspread.Cell(target_row_idx, context["col_subs_idx"], str(subscriber_count)))
+
+        ws.update_cells(cells_to_update)
+        logger.info("✅ Updated Instagram row for username %s (row %s)", username, target_row_idx)
+
+    except Exception as e:
+        logger.error(f"Error updating Instagram row for {username}: {e}")
+
+
+async def enrich_instagram_sheet(gc: gspread.Client, session: aiohttp.ClientSession):
+    _instagram_sheet_cache.clear()
+    target_url = settings.ACCOUNTS_SHEET_URL or settings.OUTPUT_SHEET_URL
+    if not target_url:
+        return
+
+    try:
+        ws = _open_sheet_by_url(gc, target_url)
+        headers = ws.row_values(1)
+
+        col_username_idx = _find_col_idx(headers, INSTAGRAM_USERNAME_HEADERS)
+        if col_username_idx == -1:
+            col_username_idx = 1
+        col_subs_idx = _find_col_idx(headers, SUBSCRIBERS_HEADERS)
+        if col_subs_idx == -1:
+            col_subs_idx = 2
+        col_video_idx = _find_col_idx(headers, VIDEO_COUNT_HEADERS)
+        if col_video_idx == -1:
+            col_video_idx = 3
+        col_id_idx = _find_col_idx(headers, INSTAGRAM_ID_HEADERS)
+        if col_id_idx == -1:
+            col_id_idx = 4
+        col_date_idx = _find_col_idx(headers, UPDATED_AT_HEADERS)
+        if col_date_idx == -1:
+            col_date_idx = 5
+
+        all_values = ws.get_all_values()
+        rows = all_values[1:]
+        cells_to_update = []
+
+        logger.info(f"🔄 Enriching Instagram Sheet ({len(rows)} rows)...")
+
+        for i, row in enumerate(rows):
+            real_row_idx = i + 2
+            username = row[col_username_idx - 1] if len(row) >= col_username_idx else ""
+            username = str(username or "").strip()
+            if not username:
+                continue
+
+            row_cells = [
+                gspread.Cell(real_row_idx, col_date_idx, datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S"))
+            ]
+            data = await fetch_instagram_profile_metadata(session, username=username)
+
+            if data and not data.get("api_error"):
+                profile_id = data.get("profile_id")
+                if profile_id:
+                    row_cells.append(gspread.Cell(real_row_idx, col_id_idx, str(profile_id)))
+                if data.get("subscriber_count") is not None:
+                    row_cells.append(gspread.Cell(real_row_idx, col_subs_idx, str(data["subscriber_count"])))
+                if data.get("video_count") is not None:
+                    row_cells.append(gspread.Cell(real_row_idx, col_video_idx, str(data["video_count"])))
+            else:
+                reason = (data or {}).get("reason") or _friendly_external_error("Instagram", data or {})
+                row_cells.append(gspread.Cell(real_row_idx, col_id_idx, reason))
+
+            cells_to_update.extend(row_cells)
+            await asyncio.sleep(0.1)
+
+        if cells_to_update:
+            ws.update_cells(cells_to_update)
+            logger.info(f"✅ Instagram Sheet updated: {len(cells_to_update)} cells changed.")
+        else:
+            logger.info("Instagram Sheet: No updates needed.")
+
+    except Exception as e:
+        logger.error(f"Error enriching Instagram sheet: {e}")
+
 
 async def enrich_youtube_sheet(gc: gspread.Client, session: aiohttp.ClientSession):
     target_url = settings.YOUTUBE_OUTPUT_SHEET_URL or settings.YOUTUBE_SHEET_URL
@@ -757,6 +1068,7 @@ async def enrich_all_sheets():
         # Better: run sequentially. The blocking time of gspread is usually small (http requests to google).
         # We accept it blocks the loop briefly.
         
+        await enrich_instagram_sheet(gc, session)
         await enrich_youtube_sheet(gc, session)
         await enrich_tiktok_sheet(gc, session)
     
