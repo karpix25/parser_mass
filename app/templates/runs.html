@@ -45,10 +45,16 @@
             <summary style="cursor: pointer; outline: none;">
               <span class="tag-chip {{ fail.platform }}">{{ fail.platform|e }}</span>
               <span class="tag-chip">{{ (fail.value or "?")|e }}</span>
-              <span class="muted text-sm">...подробнее</span>
+              <span class="muted text-sm">{{ fail.normalized.title|e }}</span>
             </summary>
-            <div class="mt-xs p-sm bg-muted rounded text-sm" style="white-space: pre-wrap; color: var(--destructive);">
-              {{ fail.reason|e }}
+            <div class="error-card error-card--{{ fail.normalized.kind|e }} mt-xs">
+              <div class="error-card__title">{{ fail.normalized.title|e }}</div>
+              <div class="error-card__message">{{ fail.normalized.message|e }}</div>
+              <div class="error-card__action">Что сделать: {{ fail.normalized.action|e }}</div>
+              <details class="error-card__details mt-sm">
+                <summary>Технические детали</summary>
+                <div class="mt-xs text-sm" style="white-space: pre-wrap;">{{ fail.normalized.details|e }}</div>
+              </details>
             </div>
           </details>
         </li>

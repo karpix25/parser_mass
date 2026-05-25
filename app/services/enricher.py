@@ -46,10 +46,17 @@ async def _fetch_sc_data(session, url, params):
             else:
                 text = await resp.text()
                 logger.debug(f"SC API Error {resp.status} for {params}: {text[:200]}")
-                return None
+                return {
+                    "error": "api_error",
+                    "status": resp.status,
+                    "message": text[:500],
+                }
     except Exception as e:
         logger.error(f"SC Request failed: {e}")
-        return None
+        return {
+            "error": "request_failed",
+            "message": str(e),
+        }
 
 def _find_col_idx(headers: list[str], possible_names: list[str]) -> int:
     """Returns 1-based index of the column, or -1 if not found."""
@@ -144,6 +151,12 @@ async def fetch_youtube_profile_metadata(
         return None
     if data.get("error") == "not_found":
         return {"is_not_found": True}
+    if data.get("error"):
+        return {
+            "api_error": True,
+            "status": data.get("status"),
+            "message": data.get("message") or data.get("error"),
+        }
 
     channel_data = data.get("channel") if isinstance(data.get("channel"), dict) else {}
     resolved_channel_id = (
@@ -180,6 +193,12 @@ async def fetch_tiktok_profile_metadata(
         return None
     if data.get("error") == "not_found":
         return {"is_not_found": True}
+    if data.get("error"):
+        return {
+            "api_error": True,
+            "status": data.get("status"),
+            "message": data.get("message") or data.get("error"),
+        }
 
     user_data = data.get("user") or {}
     stats = data.get("stats") or {}
@@ -414,6 +433,15 @@ async def enrich_youtube_sheet(gc: gspread.Client, session: aiohttp.ClientSessio
                     if col_date_idx != -1:
                         today_str = datetime.utcnow().strftime("%Y-%m-%d")
                         row_cells.append(gspread.Cell(real_row_idx, col_date_idx, today_str))
+                elif data.get("api_error"):
+                    status = data.get("status")
+                    row_cells.append(
+                        gspread.Cell(
+                            real_row_idx,
+                            col_status_idx,
+                            f"ошибка API {status}" if status else "ошибка API",
+                        )
+                    )
                 else:
                     # Успех
                     new_id = data.get("channel_id")
@@ -505,6 +533,15 @@ async def enrich_tiktok_sheet(gc: gspread.Client, session: aiohttp.ClientSession
                     if col_date_idx != -1:
                         today_str = datetime.utcnow().strftime("%Y-%m-%d")
                         row_cells.append(gspread.Cell(real_row_idx, col_date_idx, today_str))
+                elif data.get("api_error"):
+                    status = data.get("status")
+                    row_cells.append(
+                        gspread.Cell(
+                            real_row_idx,
+                            col_status_idx,
+                            f"ошибка API {status}" if status else "ошибка API",
+                        )
+                    )
                 else:
                     # Успех
                     uid = data.get("user_id")

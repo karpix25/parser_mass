@@ -28,6 +28,14 @@ def _describe_exception(err: Exception | None) -> str:
     detail = str(err).strip()
     return f"{name}: {detail}" if detail else name
 
+
+def _metadata_api_error_reason(metadata: dict) -> str:
+    status = metadata.get("status")
+    message = str(metadata.get("message") or "external API error").strip()
+    if status:
+        return f"External API error {status}: {message}"
+    return f"External API error: {message}"
+
 async def safe_run(label, func, retries=3, delay=20):
     last_error: Exception | None = None
     for attempt in range(1, retries + 1):
@@ -166,6 +174,12 @@ async def _process_youtube_list(session, pool, tags, only_accounts: set[str] | N
                 failed_list.append({"profile": profile, "reason": "404 Not Found (deleted)"})
                 continue
 
+            if metadata and metadata.get("api_error"):
+                reason = _metadata_api_error_reason(metadata)
+                logger.error("🚫 YT %s metadata failed: %s", profile, reason)
+                failed_list.append({"profile": profile, "reason": reason})
+                continue
+
             if metadata:
                 metadata_channel_id = metadata.get("channel_id")
                 resolved_channel_id = metadata_channel_id or resolved_channel_id
@@ -274,6 +288,12 @@ async def _process_tiktok_list(session, pool, tags, only_accounts: set[str] | No
                 logger.warning("🚩 TikTok handle %s is 404. Marking in Google Sheet...", handle)
                 asyncio.create_task(mark_tiktok_profile_deleted(handle))
                 failed_list.append({"handle": handle, "reason": "404 Not Found (deleted)"})
+                continue
+
+            if metadata and metadata.get("api_error"):
+                reason = _metadata_api_error_reason(metadata)
+                logger.error("🚫 TikTok %s metadata failed: %s", handle, reason)
+                failed_list.append({"handle": handle, "reason": reason})
                 continue
 
             if metadata:

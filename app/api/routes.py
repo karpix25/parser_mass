@@ -17,6 +17,7 @@ from app.sheets import (
     fetch_tiktok_profiles,
 )
 from app.services.parser import parse_all, parse_youtube_only, parse_tiktok_only
+from app.services.error_normalizer import normalize_parser_error
 
 router = APIRouter()
 
@@ -138,6 +139,11 @@ async def runs(request: Request):
                                             "platform": fail_platform,
                                             "value": str(value),
                                             "reason": str(reason),
+                                            "normalized": normalize_parser_error(
+                                                fail_platform,
+                                                str(value),
+                                                str(reason),
+                                            ),
                                         })
                         elif isinstance(entries, list):
                             for entry in entries:
