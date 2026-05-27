@@ -2,8 +2,23 @@
 from app.core.config import settings
 import asyncpg
 from loguru import logger
+from urllib.parse import urlsplit, urlunsplit
 
 db_pool: asyncpg.Pool | None = None
+
+
+def _mask_dsn(dsn: str) -> str:
+    try:
+        parsed = urlsplit(dsn)
+        if not parsed.password:
+            return dsn
+        username = parsed.username or ""
+        host = parsed.hostname or ""
+        port = f":{parsed.port}" if parsed.port else ""
+        netloc = f"{username}:***@{host}{port}" if username else f"***@{host}{port}"
+        return urlunsplit((parsed.scheme, netloc, parsed.path, parsed.query, parsed.fragment))
+    except Exception:
+        return "<hidden>"
 
 
 async def init_db() -> asyncpg.Pool:
@@ -16,12 +31,30 @@ async def init_db() -> asyncpg.Pool:
         logger.info("🔁 DB pool already initialized")
         return db_pool
 
-    dsn = (
-        f"postgresql://{settings.PG_USER}:{settings.PG_PASSWORD}"
-        f"@{settings.PG_HOST}:{settings.PG_PORT}/{settings.PG_DATABASE}"
-    )
+    if settings.DATABASE_URL:
+        dsn = settings.DATABASE_URL
+    else:
+        missing = [
+            name for name, value in {
+                "PG_USER": settings.PG_USER,
+                "PG_PASSWORD": settings.PG_PASSWORD,
+                "PG_HOST": settings.PG_HOST,
+                "PG_DATABASE": settings.PG_DATABASE,
+            }.items()
+            if not value
+        ]
+        if missing:
+            raise RuntimeError(
+                "Database config is incomplete. Set DATABASE_URL or provide: "
+                + ", ".join(missing)
+            )
 
-    logger.info(f"🗄️ Connecting to Postgres: {dsn}")
+        dsn = (
+            f"postgresql://{settings.PG_USER}:{settings.PG_PASSWORD}"
+            f"@{settings.PG_HOST}:{settings.PG_PORT}/{settings.PG_DATABASE}"
+        )
+
+    logger.info(f"🗄️ Connecting to Postgres: {_mask_dsn(dsn)}")
 
     # ✅ безопасная конфигурация для PgBouncer или прямого подключения
     db_pool = await asyncpg.create_pool(

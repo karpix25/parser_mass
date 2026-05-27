@@ -7,11 +7,12 @@ class Settings(BaseSettings):
     LOG_LEVEL: str = "INFO"
     
     # Database
-    PG_USER: str
-    PG_PASSWORD: str
-    PG_HOST: str
+    DATABASE_URL: str | None = None
+    PG_USER: str | None = None
+    PG_PASSWORD: str | None = None
+    PG_HOST: str | None = None
     PG_PORT: int = 5432
-    PG_DATABASE: str
+    PG_DATABASE: str | None = None
     PG_SCHEMA: str = "public"
     
     # Google Sheets
