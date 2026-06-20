@@ -48,6 +48,10 @@ logger = logging.getLogger("app.main")
 
 app = FastAPI()
 
+@app.get("/health")
+async def health():
+    return {"status": "ok"}
+
 # Mount static if needed, or just templates
 # app.mount("/static", StaticFiles(directory="static"), name="static")
 
